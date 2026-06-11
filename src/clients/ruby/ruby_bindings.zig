@@ -134,6 +134,43 @@ fn field_reserved(comptime field_name: []const u8) bool {
     return false;
 }
 
+fn is_flags_type(comptime Type: type) bool {
+    const type_info = @typeInfo(Type);
+    return type_info == .@"struct" and type_info.@"struct".layout == .@"packed";
+}
+
+fn emit_flags_helper_module(buffer: *Buffer) void {
+    buffer.write(
+        \\  module Flags
+        \\    def from(value)
+        \\      case value
+        \\      when Integer
+        \\        value
+        \\      when Array
+        \\        value.reduce(0) { |flags, flag| flags | const_get(flag.upcase) }
+        \\      else
+        \\        raise TypeError, "expected Integer or Array[Symbol] for #{name}"
+        \\      end
+        \\    rescue NameError
+        \\      raise ArgumentError, "unknown flag for #{name}: #{value.inspect}"
+        \\    end
+        \\  end
+        \\
+        \\  module FlagField
+        \\    def self.included(base)
+        \\      flags_module_name = "#{base.name.split("::").last}Flags"
+        \\      flags_module = TigerBeetle.const_get(flags_module_name)
+        \\
+        \\      base.define_method(:flags=) do |value|
+        \\        @flags = flags_module.from(value)
+        \\      end
+        \\    end
+        \\  end
+        \\
+        \\
+    );
+}
+
 fn emit_flags_module(
     buffer: *Buffer,
     comptime Type: type,
@@ -143,6 +180,7 @@ fn emit_flags_module(
     assert(@typeInfo(Type).@"struct".layout == .@"packed");
 
     buffer.print("  module {s}\n", .{ruby_name});
+    buffer.print("    extend Flags\n\n", .{});
     buffer.print("    NONE = 0\n", .{});
     inline for (@typeInfo(Type).@"struct".fields, 0..) |field, i| {
         if (comptime std.mem.startsWith(u8, field.name, "deprecated_")) continue;
@@ -177,9 +215,7 @@ fn emit_enum_module(
 }
 
 fn emit_field_default(buffer: *Buffer, comptime FieldType: type) void {
-    const type_info = @typeInfo(FieldType);
-    const is_flags = type_info == .@"struct" and type_info.@"struct".layout == .@"packed";
-    if (is_flags) {
+    if (comptime is_flags_type(FieldType)) {
         buffer.print("{s}::NONE", .{comptime ruby_flags_name_from_type(FieldType).?});
     } else {
         buffer.print("0", .{});
@@ -196,15 +232,30 @@ fn emit_struct_class(
     assert(@typeInfo(Type).@"struct".layout == .@"extern");
 
     const fields = @typeInfo(Type).@"struct".fields;
+    comptime var flags_type: ?type = null;
+    inline for (fields) |field| {
+        if (comptime is_flags_type(field.type)) {
+            flags_type = field.type;
+        }
+    }
 
     buffer.print("  class {s}\n", .{ruby_name});
+    if (comptime flags_type != null and !read_only) {
+        buffer.print("    include FlagField\n\n", .{});
+    }
 
     inline for (fields) |field| {
         if (comptime std.mem.eql(u8, field.name, "reserved")) continue;
-        buffer.print(
-            "    attr_{s} :{s}\n",
-            .{ if (read_only) "reader" else "accessor", field.name },
-        );
+        const field_is_flags = comptime is_flags_type(field.type);
+        if (field_is_flags) {
+            // Flag field writers are provided by the FlagField module.
+            buffer.print("    attr_reader :{s}\n", .{field.name});
+        } else {
+            buffer.print(
+                "    attr_{s} :{s}\n",
+                .{ if (read_only) "reader" else "accessor", field.name },
+            );
+        }
     }
     buffer.print("\n", .{});
 
@@ -221,7 +272,11 @@ fn emit_struct_class(
         buffer.print("\n    )\n", .{});
         inline for (fields) |field| {
             if (comptime std.mem.eql(u8, field.name, "reserved")) continue;
-            buffer.print("      @{s} = {s}\n", .{ field.name, field.name });
+            if (comptime is_flags_type(field.type)) {
+                buffer.print("      self.{s} = {s}\n", .{ field.name, field.name });
+            } else {
+                buffer.print("      @{s} = {s}\n", .{ field.name, field.name });
+            }
         }
         buffer.print("    end\n", .{});
     } else {
@@ -246,6 +301,7 @@ fn emit_rbs_constants_module(
     switch (@typeInfo(Type)) {
         .@"struct" => |info| {
             assert(info.layout == .@"packed");
+            buffer.print("    def self.from: (flags) -> Integer\n\n", .{});
             buffer.print("    NONE: Integer\n", .{});
             inline for (info.fields) |field| {
                 if (comptime std.mem.startsWith(u8, field.name, "deprecated_")) continue;
@@ -287,10 +343,15 @@ fn emit_rbs_struct_class(
 
     inline for (fields) |field| {
         if (comptime std.mem.eql(u8, field.name, "reserved")) continue;
-        buffer.print(
-            "    attr_{s} {s}: Integer\n",
-            .{ if (read_only) "reader" else "accessor", field.name },
-        );
+        if (comptime is_flags_type(field.type)) {
+            buffer.print("    attr_reader {s}: Integer\n", .{field.name});
+            buffer.print("    def {s}=: (flags) -> Integer\n", .{field.name});
+        } else {
+            buffer.print(
+                "    attr_{s} {s}: Integer\n",
+                .{ if (read_only) "reader" else "accessor", field.name },
+            );
+        }
     }
     buffer.print("\n", .{});
 
@@ -301,7 +362,8 @@ fn emit_rbs_struct_class(
         comptime var sep: []const u8 = "";
         inline for (fields) |field| {
             if (comptime std.mem.eql(u8, field.name, "reserved")) continue;
-            buffer.print("{s}?{s}: Integer", .{ sep, field.name });
+            const type_name = if (comptime is_flags_type(field.type)) "flags" else "Integer";
+            buffer.print("{s}?{s}: {s}", .{ sep, field.name, type_name });
             sep = ", ";
         }
         buffer.print(") -> void\n", .{});
@@ -321,6 +383,8 @@ fn emit_rbs_bindings(buffer: *Buffer) void {
         \\
         \\module TigerBeetle
         \\  VERSION: String
+        \\
+        \\  type flags = Integer | Array[Symbol]
         \\
         \\  def self.id: () -> Integer
         \\
@@ -391,6 +455,8 @@ fn emit_ruby_bindings(buffer: *Buffer) void {
         \\
     , .{});
 
+    emit_flags_helper_module(buffer);
+
     // Flag modules (packed structs).
     inline for (flag_mappings) |mapping| {
         const ZigType, const ruby_name = mapping;
@@ -417,6 +483,8 @@ fn emit_ruby_bindings(buffer: *Buffer) void {
     emit_struct_class(buffer, tb.CreateAccountResult, "CreateAccountResult", true);
     emit_struct_class(buffer, tb.CreateTransferResult, "CreateTransferResult", true);
 
+    buffer.print("  private_constant :Flags\n", .{});
+    buffer.print("  private_constant :FlagField\n", .{});
     buffer.print("end\n", .{});
 }
 
