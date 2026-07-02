@@ -1,0 +1,48 @@
+.{
+    .suite = .lookup_accounts,
+    .cases = .{
+        .{
+            .description = "returns an existing account",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{.{ .value = .{ .id = 1 } }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .accounts,
+                    .expected = .{.{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 }},
+                } },
+            },
+        },
+        .{
+            .description = "returns no accounts for a missing id",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{.{ .value = .{ .id = 1 } }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .accounts },
+            },
+        },
+    },
+}

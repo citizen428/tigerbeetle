@@ -229,6 +229,10 @@ pub fn build(b: *std.Build) !void {
         .mode = mode,
     });
 
+    const conformance_cases = try build_conformance_fixture(b, .{
+        .stdx_module = stdx_module,
+    });
+
     // zig build check
     build_check(b, build_steps.check, .{
         .stdx_module = stdx_module,
@@ -369,6 +373,7 @@ pub fn build(b: *std.Build) !void {
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
         .tb_client_header = tb_client.header,
+        .conformance_cases = conformance_cases,
         .mode = mode,
     });
     build_java_client(b, build_steps.clients_java, .{
@@ -397,6 +402,7 @@ pub fn build(b: *std.Build) !void {
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
         .tb_client_header = tb_client.header,
+        .conformance_cases = conformance_cases,
         .tb_client = tb_client,
         .mode = mode,
     });
@@ -1536,6 +1542,33 @@ fn build_tb_client(
     };
 }
 
+fn build_conformance_fixture(
+    b: *std.Build,
+    options: struct {
+        stdx_module: *std.Build.Module,
+    },
+) !std.Build.LazyPath {
+    const generator = b.addExecutable(.{
+        .name = "conformance_fixture",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clients/conformance/generate_fixture.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    generator.root_module.addImport("stdx", options.stdx_module);
+
+    const run = b.addRunArtifact(generator);
+    const cases_path = "src/clients/conformance/cases";
+    var cases_dir = try b.build_root.handle.openDir(cases_path, .{ .iterate = true });
+    defer cases_dir.close();
+    var cases = cases_dir.iterate();
+    while (try cases.next()) |case| {
+        run.addFileInput(b.path(b.fmt(cases_path ++ "/{s}", .{case.name})));
+    }
+
+    return run.captureStdOut();
+}
+
 fn build_rust_client(
     b: *std.Build,
     step_clients_rust: *std.Build.Step,
@@ -1608,6 +1641,7 @@ fn build_go_client(
         vsr_module: *std.Build.Module,
         vsr_options: *std.Build.Step.Options,
         tb_client_header: std.Build.LazyPath,
+        conformance_cases: std.Build.LazyPath,
         mode: std.builtin.OptimizeMode,
     },
 ) void {
@@ -1631,6 +1665,12 @@ fn build_go_client(
         .generator = go_bindings_generator,
         .path = "./src/clients/go/bindings.go",
     });
+
+    const conformance_cases_copy = Generated.file_copy(b, .{
+        .from = options.conformance_cases,
+        .path = "./src/clients/go/conformance/conformance.json",
+    });
+    step_clients_go.dependOn(&conformance_cases_copy.step);
 
     for (Platform.all) |platform| {
         // We don't need the linux-gnu builds.
@@ -1914,6 +1954,7 @@ fn build_ruby_client(
         vsr_module: *std.Build.Module,
         vsr_options: *std.Build.Step.Options,
         tb_client_header: std.Build.LazyPath,
+        conformance_cases: std.Build.LazyPath,
         tb_client: TBClientPrebuilt,
         mode: std.builtin.OptimizeMode,
     },
@@ -1938,6 +1979,12 @@ fn build_ruby_client(
         .vsr_module = options.vsr_module,
         .vsr_options = options.vsr_options,
     }).step);
+
+    const conformance_cases_copy = Generated.file_copy(b, .{
+        .from = options.conformance_cases,
+        .path = "./src/clients/ruby/tests/integration/conformance/conformance.json",
+    });
+    step_clients_ruby.dependOn(&conformance_cases_copy.step);
 
     const tb_client_header_copy = Generated.file_copy(b, .{
         .from = options.tb_client_header,
