@@ -229,7 +229,11 @@ pub fn build(b: *std.Build) !void {
         .mode = mode,
     });
 
-    const conformance_cases = try build_conformance_fixture(b, .{
+    const conformance_cases_json = try build_conformance_fixture(b, .json, .{
+        .stdx_module = stdx_module,
+    });
+
+    const conformance_cases_xml = try build_conformance_fixture(b, .xml, .{
         .stdx_module = stdx_module,
     });
 
@@ -373,12 +377,13 @@ pub fn build(b: *std.Build) !void {
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
         .tb_client_header = tb_client.header,
-        .conformance_cases = conformance_cases,
+        .conformance_cases = conformance_cases_json,
         .mode = mode,
     });
     build_java_client(b, build_steps.clients_java, .{
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
+        .conformance_cases = conformance_cases_xml,
         .mode = mode,
     });
     build_dotnet_client(b, build_steps.clients_dotnet, .{
@@ -402,7 +407,7 @@ pub fn build(b: *std.Build) !void {
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
         .tb_client_header = tb_client.header,
-        .conformance_cases = conformance_cases,
+        .conformance_cases = conformance_cases_json,
         .tb_client = tb_client,
         .mode = mode,
     });
@@ -1544,10 +1549,13 @@ fn build_tb_client(
 
 fn build_conformance_fixture(
     b: *std.Build,
+    format: enum { json, xml },
     options: struct {
         stdx_module: *std.Build.Module,
     },
 ) !std.Build.LazyPath {
+    const conformance_fixture_options = b.addOptions();
+    conformance_fixture_options.addOption([]const u8, "format", @tagName(format));
     const generator = b.addExecutable(.{
         .name = "conformance_fixture",
         .root_module = b.createModule(.{
@@ -1556,6 +1564,7 @@ fn build_conformance_fixture(
         }),
     });
     generator.root_module.addImport("stdx", options.stdx_module);
+    generator.root_module.addOptions("conformance_fixture_options", conformance_fixture_options);
 
     const run = b.addRunArtifact(generator);
     const cases_path = "src/clients/conformance/cases";
@@ -1725,6 +1734,7 @@ fn build_java_client(
     options: struct {
         vsr_module: *std.Build.Module,
         vsr_options: *std.Build.Step.Options,
+        conformance_cases: std.Build.LazyPath,
         mode: std.builtin.OptimizeMode,
     },
 ) void {
@@ -1741,6 +1751,12 @@ fn build_java_client(
         .generator = java_bindings_generator,
         .path = "./src/clients/java/src/main/java/com/tigerbeetle/",
     });
+
+    const conformance_cases_copy = Generated.file_copy(b, .{
+        .from = options.conformance_cases,
+        .path = "./src/clients/java/src/test/resources/conformance.xml",
+    });
+    step_clients_java.dependOn(&conformance_cases_copy.step);
 
     for (Platform.all) |platform| {
         const resolved_target = platform.target_resolved(b);

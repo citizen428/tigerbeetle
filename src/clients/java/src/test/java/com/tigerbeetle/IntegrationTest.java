@@ -2613,7 +2613,7 @@ public class IntegrationTest {
         }
     }
 
-    private static class Server implements AutoCloseable {
+    static class Server implements AutoCloseable {
 
         public static final String TB_SERVER = "../../../zig-out/bin/tigerbeetle";
 
