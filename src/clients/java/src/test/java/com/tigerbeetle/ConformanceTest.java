@@ -126,7 +126,7 @@ public class ConformanceTest {
             case "create_accounts": {
                 final var accounts = new AccountBatch(inputs.size());
                 for (final var input : inputs) {
-                    addAccount(accounts, accountValue(input));
+                    addAccount(accounts, elementValue(input, "account"));
                 }
                 return client.createAccounts(accounts);
             }
@@ -136,6 +136,20 @@ public class ConformanceTest {
                     lookupIds.add(uint128Value(input));
                 }
                 return client.lookupAccounts(lookupIds);
+            }
+            case "create_transfers": {
+                final var transfers = new TransferBatch(inputs.size());
+                for (final var input : inputs) {
+                    addTransfer(transfers, elementValue(input, "transfer"));
+                }
+                return client.createTransfers(transfers);
+            }
+            case "lookup_transfers": {
+                final var lookupIds = new IdBatch(inputs.size());
+                for (final var input : inputs) {
+                    lookupIds.add(uint128Value(input));
+                }
+                return client.lookupTransfers(lookupIds);
             }
             default:
                 fail("unknown operation: " + name);
@@ -166,6 +180,7 @@ public class ConformanceTest {
         final var element = onlyChild(value);
         switch (element.getTagName()) {
             case "account":
+            case "transfer":
                 return element;
             case "id":
                 return logicalId(Long.parseLong(element.getTextContent()));
@@ -192,13 +207,36 @@ public class ConformanceTest {
         }
     }
 
+    private void addTransfer(final TransferBatch transfers, final Element transfer) {
+        transfers.add();
+        transfers.setId(uint128Value(buildValue(child(transfer, "id"))));
+        transfers.setDebitAccountId(uint128Value(buildValue(child(transfer, "debit_account_id"))));
+        transfers
+                .setCreditAccountId(uint128Value(buildValue(child(transfer, "credit_account_id"))));
+
+        final var amount = childOptional(transfer, "amount");
+        if (amount != null) {
+            transfers.setAmount(new BigInteger(amount.getTextContent()));
+        }
+
+        final var ledger = childOptional(transfer, "ledger");
+        if (ledger != null) {
+            transfers.setLedger(Integer.parseInt(ledger.getTextContent()));
+        }
+
+        final var code = childOptional(transfer, "code");
+        if (code != null) {
+            transfers.setCode(Integer.parseInt(code.getTextContent()));
+        }
+    }
+
     private byte[] logicalId(final long value) {
         return ids.computeIfAbsent(value, unused -> UInt128.id());
     }
 
-    private static Element accountValue(final Object value) {
-        if (!(value instanceof Element)) {
-            fail("expected an account: " + value);
+    private static Element elementValue(final Object value, final String tag) {
+        if (!(value instanceof Element) || !((Element) value).getTagName().equals(tag)) {
+            fail("expected <" + tag + ">: " + value);
         }
         return (Element) value;
     }
@@ -238,8 +276,10 @@ public class ConformanceTest {
                 final var expected = children(child(assertion, "expected"));
                 if (result instanceof CreateAccountResultBatch) {
                     assertCreateAccountResults(expected, (CreateAccountResultBatch) result);
+                } else if (result instanceof CreateTransferResultBatch) {
+                    assertCreateTransferResults(expected, (CreateTransferResultBatch) result);
                 } else {
-                    assertAccounts(expected, (AccountBatch) result);
+                    assertRecords(expected, (Batch) result);
                 }
                 break;
             }
@@ -254,6 +294,12 @@ public class ConformanceTest {
         }
         if (result instanceof AccountBatch) {
             return "accounts";
+        }
+        if (result instanceof CreateTransferResultBatch) {
+            return "create_transfer_results";
+        }
+        if (result instanceof TransferBatch) {
+            return "transfers";
         }
 
         fail("unknown result type: " + result);
@@ -270,14 +316,23 @@ public class ConformanceTest {
         }
     }
 
-    private void assertAccounts(final List<Element> expected, final AccountBatch actual)
-            throws Exception {
-        assertEquals("accounts", expected.size(), actual.getLength());
+    private void assertCreateTransferResults(final List<Element> expected,
+            final CreateTransferResultBatch actual) {
+        assertEquals("create transfer results", expected.size(), actual.getLength());
+        for (final var item : expected) {
+            assertTrue(actual.next());
+            assertEquals(createTransferStatus(child(item, "status").getTextContent()),
+                    actual.getStatus());
+        }
+    }
+
+    private void assertRecords(final List<Element> expected, final Batch actual) throws Exception {
+        assertEquals("records", expected.size(), actual.getLength());
         for (final var item : expected) {
             assertTrue(actual.next());
             for (final var field : children(item)) {
                 final var actualValue =
-                        AccountBatch.class.getMethod(getterName(field.getTagName())).invoke(actual);
+                        actual.getClass().getMethod(getterName(field.getTagName())).invoke(actual);
                 if (children(field).isEmpty()) {
                     assertEquals(field.getTagName(), Long.parseLong(field.getTextContent()),
                             ((Number) actualValue).longValue());
@@ -305,6 +360,18 @@ public class ConformanceTest {
                 return CreateAccountStatus.Exists;
             default:
                 fail("unknown create account status: " + status);
+                return null;
+        }
+    }
+
+    private static CreateTransferStatus createTransferStatus(final String status) {
+        switch (status) {
+            case "created":
+                return CreateTransferStatus.Created;
+            case "exists":
+                return CreateTransferStatus.Exists;
+            default:
+                fail("unknown create transfer status: " + status);
                 return null;
         }
     }

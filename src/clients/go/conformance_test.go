@@ -238,6 +238,24 @@ func executeOperation(
 		}
 
 		return client.LookupAccounts(ids)
+	case "create_transfers":
+		transfers := make([]Transfer, len(inputs))
+		for i, input := range inputs {
+			transfer, ok := input.(Transfer)
+			if !ok {
+				t.Fatalf("create_transfers input is not a Transfer: %#v", input)
+			}
+			transfers[i] = transfer
+		}
+
+		return client.CreateTransfers(transfers)
+	case "lookup_transfers":
+		ids := make([]Uint128, len(inputs))
+		for i, input := range inputs {
+			ids[i] = uint128Value(t, input)
+		}
+
+		return client.LookupTransfers(ids)
 	default:
 		t.Fatalf("unknown operation: %s", operation.Name)
 		return nil, nil
@@ -266,6 +284,8 @@ func buildValue(t testing.TB, value json.RawMessage, context conformanceContext)
 	switch tag {
 	case "account":
 		return buildAccount(t, data, context)
+	case "transfer":
+		return buildTransfer(t, data, context)
 	case "id":
 		var id uint64
 		decodeJSON(t, data, &id)
@@ -300,6 +320,27 @@ func buildAccount(t testing.TB, data json.RawMessage, context conformanceContext
 		ID:     uint128Value(t, buildValue(t, account.ID, context)),
 		Ledger: account.Ledger,
 		Code:   account.Code,
+	}
+}
+
+func buildTransfer(t testing.TB, data json.RawMessage, context conformanceContext) Transfer {
+	var transfer struct {
+		ID              json.RawMessage `json:"id"`
+		DebitAccountID  json.RawMessage `json:"debit_account_id"`
+		CreditAccountID json.RawMessage `json:"credit_account_id"`
+		Amount          uint64          `json:"amount"`
+		Ledger          uint32          `json:"ledger"`
+		Code            uint16          `json:"code"`
+	}
+	decodeJSON(t, data, &transfer)
+
+	return Transfer{
+		ID:              uint128Value(t, buildValue(t, transfer.ID, context)),
+		DebitAccountID:  uint128Value(t, buildValue(t, transfer.DebitAccountID, context)),
+		CreditAccountID: uint128Value(t, buildValue(t, transfer.CreditAccountID, context)),
+		Amount:          ToUint128(transfer.Amount),
+		Ledger:          transfer.Ledger,
+		Code:            transfer.Code,
 	}
 }
 
@@ -373,6 +414,10 @@ func resultName(t testing.TB, result interface{}) (string, int) {
 		return "create_account_results", len(result)
 	case []Account:
 		return "accounts", len(result)
+	case []CreateTransferResult:
+		return "create_transfer_results", len(result)
+	case []Transfer:
+		return "transfers", len(result)
 	default:
 		t.Fatalf("unknown result type: %#v", result)
 		return "", 0
@@ -410,6 +455,8 @@ func assertResultEqual(
 	switch result := result.(type) {
 	case []CreateAccountResult:
 		assertCreateAccountResults(t, expectedValue, result, description)
+	case []CreateTransferResult:
+		assertCreateTransferResults(t, expectedValue, result, description)
 	default:
 		assertRecords(t, expectedValue, result, description, context)
 	}
@@ -440,6 +487,40 @@ func assertCreateAccountResults(
 		if status != actual[i].Status {
 			t.Fatalf(
 				"%s: expected create account result %d status %s, got %s",
+				description,
+				i,
+				status,
+				actual[i].Status,
+			)
+		}
+	}
+}
+
+func assertCreateTransferResults(
+	t testing.TB,
+	expectedJSON json.RawMessage,
+	actual []CreateTransferResult,
+	description string,
+) {
+	var expected []struct {
+		Status string `json:"status"`
+	}
+	decodeJSON(t, expectedJSON, &expected)
+
+	if len(expected) != len(actual) {
+		t.Fatalf(
+			"%s: expected %d create transfer results, got %d",
+			description,
+			len(expected),
+			len(actual),
+		)
+	}
+
+	for i := range expected {
+		status := createTransferStatus(t, expected[i].Status)
+		if status != actual[i].Status {
+			t.Fatalf(
+				"%s: expected create transfer result %d status %s, got %s",
 				description,
 				i,
 				status,
@@ -486,6 +567,10 @@ func assertRecord(
 		var expectedValue interface{}
 		if bytes.HasPrefix(bytes.TrimSpace(value), []byte("{")) {
 			expectedValue = buildValue(t, value, context)
+		} else if actualField.Type() == reflect.TypeOf(Uint128{}) {
+			var number uint64
+			decodeJSON(t, value, &number)
+			expectedValue = ToUint128(number)
 		} else {
 			pointer := reflect.New(actualField.Type())
 			decodeJSON(t, value, pointer.Interface())
@@ -525,6 +610,18 @@ func createAccountStatus(t testing.TB, status string) CreateAccountStatus {
 		return AccountExists
 	default:
 		t.Fatalf("unknown create account status: %s", status)
+		return 0
+	}
+}
+
+func createTransferStatus(t testing.TB, status string) CreateTransferStatus {
+	switch status {
+	case "created":
+		return TransferCreated
+	case "exists":
+		return TransferExists
+	default:
+		t.Fatalf("unknown create transfer status: %s", status)
 		return 0
 	}
 }

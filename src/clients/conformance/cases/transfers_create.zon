@@ -1,0 +1,97 @@
+.{
+    .suite = .create_transfers,
+    .cases = .{
+        .{
+            .description = "creates a transfer",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 3 },
+                                .debit_account_id = .{ .id = 1 },
+                                .credit_account_id = .{ .id = 2 },
+                                .amount = 100,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .create_transfer_results,
+                    .expected = .{.{ .status = .created }},
+                } },
+            },
+        },
+        .{
+            .description = "returns exists for a duplicate transfer",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+                .{
+                    .assign = .{
+                        .name = "transfer",
+                        .value = .{ .transfer = .{
+                            .id = .{ .id = 3 },
+                            .debit_account_id = .{ .id = 1 },
+                            .credit_account_id = .{ .id = 2 },
+                            .amount = 100,
+                            .ledger = 1,
+                            .code = 1,
+                        } },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{.{ .from = "transfer" }},
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{.{ .from = "transfer" }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .create_transfer_results,
+                    .expected = .{.{ .status = .exists }},
+                } },
+            },
+        },
+    },
+}

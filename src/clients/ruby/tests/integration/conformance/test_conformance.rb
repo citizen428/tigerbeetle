@@ -73,6 +73,10 @@ class TestConformanceCases < Minitest::Test
       { "create_account_results" => @client.create_accounts(inputs) }
     when "lookup_accounts"
       { "accounts" => @client.lookup_accounts(inputs) }
+    when "create_transfers"
+      { "create_transfer_results" => @client.create_transfers(inputs) }
+    when "lookup_transfers"
+      { "transfers" => @client.lookup_transfers(inputs) }
     else
       flunk("unknown operation: #{operation}")
     end
@@ -94,6 +98,8 @@ class TestConformanceCases < Minitest::Test
     case type
     when "account"
       build_account(data, context)
+    when "transfer"
+      build_transfer(data, context)
     when "id"
       logical_id(data, context)
     when "u128"
@@ -108,6 +114,17 @@ class TestConformanceCases < Minitest::Test
       id: build_value(account.fetch("id"), context),
       ledger: account.fetch("ledger"),
       code: account.fetch("code")
+    )
+  end
+
+  def build_transfer(transfer, context)
+    TigerBeetle::Transfer.new(
+      id: build_value(transfer.fetch("id"), context),
+      debit_account_id: build_value(transfer.fetch("debit_account_id"), context),
+      credit_account_id: build_value(transfer.fetch("credit_account_id"), context),
+      amount: transfer.fetch("amount"),
+      ledger: transfer.fetch("ledger"),
+      code: transfer.fetch("code")
     )
   end
 
@@ -147,26 +164,27 @@ class TestConformanceCases < Minitest::Test
   def assert_item(result_type, expected, actual, case_description, context)
     case result_type
     when "create_account_results"
-      assert_create_account_result(expected, actual, case_description)
-    when "accounts"
-      assert_account(expected, actual, case_description, context)
+      assert_create_result(expected, actual, TigerBeetle::CreateAccountStatus, case_description)
+    when "create_transfer_results"
+      assert_create_result(expected, actual, TigerBeetle::CreateTransferStatus, case_description)
+    when "accounts", "transfers"
+      assert_record(expected, actual, case_description, context)
     else
       flunk("unknown result type: #{result_type}")
     end
   end
 
-  def assert_create_account_result(expected, actual, case_description)
+  def assert_create_result(expected, actual, status_class, case_description)
     expected.each do |field, value|
-      case field
-      when "status"
-        assert_equal(create_account_status(value), actual.status, case_description)
+      if field == "status"
+        assert_equal(status_class.const_get(value.upcase), actual.status, case_description)
       else
         assert_equal(value, actual.public_send(field), case_description)
       end
     end
   end
 
-  def assert_account(expected, actual, case_description, context)
+  def assert_record(expected, actual, case_description, context)
     expected.each do |field, value|
       assert_equal(resolve_value(value, context), actual.public_send(field), case_description)
     end
@@ -177,9 +195,5 @@ class TestConformanceCases < Minitest::Test
     return value unless value.is_a?(Hash)
 
     build_value(value, context)
-  end
-
-  def create_account_status(name)
-    TigerBeetle::CreateAccountStatus.const_get(name.upcase)
   end
 end

@@ -1,0 +1,71 @@
+.{
+    .suite = .lookup_transfers,
+    .cases = .{
+        .{
+            .description = "returns an existing transfer",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 3 },
+                                .debit_account_id = .{ .id = 1 },
+                                .credit_account_id = .{ .id = 2 },
+                                .amount = 42,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_transfers,
+                        .inputs = .{.{ .value = .{ .id = 3 } }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .transfers,
+                    .expected = .{.{
+                        .id = .{ .id = 3 },
+                        .debit_account_id = .{ .id = 1 },
+                        .credit_account_id = .{ .id = 2 },
+                        .amount = 42,
+                    }},
+                } },
+            },
+        },
+        .{
+            .description = "returns no transfers for a missing id",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_transfers,
+                        .inputs = .{.{ .value = .{ .id = 1 } }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .transfers },
+            },
+        },
+    },
+}
