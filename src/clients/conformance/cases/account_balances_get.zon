@@ -1,0 +1,122 @@
+.{
+    .suite = .get_account_balances,
+    .cases = .{
+        .{
+            .description = "returns a balance per transfer for a history account",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .id = 1 },
+                                .ledger = 1,
+                                .code = 1,
+                                .flags = .{.history},
+                            } } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 3 },
+                                .debit_account_id = .{ .id = 1 },
+                                .credit_account_id = .{ .id = 2 },
+                                .amount = 10,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 4 },
+                                .debit_account_id = .{ .id = 2 },
+                                .credit_account_id = .{ .id = 1 },
+                                .amount = 20,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_balances,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .{ .id = 1 },
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .account_balances,
+                    .expected = .{
+                        .{ .debits_posted = 10, .credits_posted = 0 },
+                        .{ .debits_posted = 10, .credits_posted = 20 },
+                    },
+                } },
+            },
+        },
+        .{
+            .description = "returns no balances without the history flag",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 3 },
+                                .debit_account_id = .{ .id = 1 },
+                                .credit_account_id = .{ .id = 2 },
+                                .amount = 10,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_balances,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .{ .id = 1 },
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .account_balances },
+            },
+        },
+    },
+}

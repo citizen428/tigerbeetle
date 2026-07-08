@@ -1,0 +1,92 @@
+.{
+    .suite = .get_account_transfers,
+    .cases = .{
+        .{
+            .description = "returns debit and credit transfers for an account",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 1 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 2 }, .ledger = 1, .code = 1 },
+                            } },
+                            .{ .value = .{
+                                .account = .{ .id = .{ .id = 3 }, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 4 },
+                                .debit_account_id = .{ .id = 1 },
+                                .credit_account_id = .{ .id = 3 },
+                                .amount = 10,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .id = 5 },
+                                .debit_account_id = .{ .id = 2 },
+                                .credit_account_id = .{ .id = 1 },
+                                .amount = 20,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .{ .id = 1 },
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .transfers,
+                    .expected = .{
+                        .{ .id = .{ .id = 4 }, .amount = 10 },
+                        .{ .id = .{ .id = 5 }, .amount = 20 },
+                    },
+                } },
+            },
+        },
+        .{
+            .description = "returns no transfers for an unused account",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .{ .id = 1 },
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .transfers },
+            },
+        },
+    },
+}

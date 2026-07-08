@@ -151,6 +151,10 @@ public class ConformanceTest {
                 }
                 return client.lookupTransfers(lookupIds);
             }
+            case "get_account_transfers":
+                return client.getAccountTransfers(accountFilterValue(inputs));
+            case "get_account_balances":
+                return client.getAccountBalances(accountFilterValue(inputs));
             default:
                 fail("unknown operation: " + name);
                 return null;
@@ -182,6 +186,8 @@ public class ConformanceTest {
             case "account":
             case "transfer":
                 return element;
+            case "account_filter":
+                return buildAccountFilter(element);
             case "id":
                 return logicalId(Long.parseLong(element.getTextContent()));
             case "u128":
@@ -192,7 +198,7 @@ public class ConformanceTest {
         }
     }
 
-    private void addAccount(final AccountBatch accounts, final Element account) {
+    private void addAccount(final AccountBatch accounts, final Element account) throws Exception {
         accounts.add();
         accounts.setId(uint128Value(buildValue(child(account, "id"))));
 
@@ -205,6 +211,47 @@ public class ConformanceTest {
         if (code != null) {
             accounts.setCode(Integer.parseInt(code.getTextContent()));
         }
+
+        final var flags = childOptional(account, "flags");
+        if (flags != null) {
+            accounts.setFlags(flagsValue(flags, AccountFlags.class));
+        }
+    }
+
+    private AccountFilter buildAccountFilter(final Element element) {
+        final var filter = new AccountFilter();
+        filter.setAccountId(uint128Value(buildValue(child(element, "account_id"))));
+
+        final var limit = childOptional(element, "limit");
+        if (limit != null) {
+            filter.setLimit(Integer.parseInt(limit.getTextContent()));
+        }
+
+        final var flags = childOptional(element, "flags");
+        if (flags != null) {
+            try {
+                filter.setFlags(flagsValue(flags, AccountFilterFlags.class), true);
+            } catch (Exception exception) {
+                fail(exception.toString());
+            }
+        }
+
+        return filter;
+    }
+
+    private static int flagsValue(final Element flags, final Class<?> flagsClass) throws Exception {
+        var value = 0;
+        for (final var flag : children(flags)) {
+            value |= flagsClass.getField(flag.getTextContent().toUpperCase()).getInt(null);
+        }
+        return value;
+    }
+
+    private static AccountFilter accountFilterValue(final List<Object> inputs) {
+        if (inputs.size() != 1 || !(inputs.get(0) instanceof AccountFilter)) {
+            fail("expected a single account filter: " + inputs);
+        }
+        return (AccountFilter) inputs.get(0);
     }
 
     private void addTransfer(final TransferBatch transfers, final Element transfer) {
@@ -300,6 +347,9 @@ public class ConformanceTest {
         }
         if (result instanceof TransferBatch) {
             return "transfers";
+        }
+        if (result instanceof AccountBalanceBatch) {
+            return "account_balances";
         }
 
         fail("unknown result type: " + result);

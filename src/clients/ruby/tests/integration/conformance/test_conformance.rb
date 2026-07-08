@@ -42,11 +42,17 @@ class TestConformanceCases < Minitest::Test
   end
 
   def expects_fail?(expected)
-    expected.any? { |assertion| assertion.key?("assert_fail") }
+    expected.any? { |assertion| single_entry(assertion).first == "assert_fail" }
+  end
+
+  def single_entry(hash)
+    flunk("expected a single entry: #{hash.inspect}") unless hash.length == 1
+
+    hash.first
   end
 
   def execute_arrange(step, context)
-    type, value = step.first
+    type, value = single_entry(step)
 
     case type
     when "assign"
@@ -77,9 +83,19 @@ class TestConformanceCases < Minitest::Test
       { "create_transfer_results" => @client.create_transfers(inputs) }
     when "lookup_transfers"
       { "transfers" => @client.lookup_transfers(inputs) }
+    when "get_account_transfers"
+      { "transfers" => @client.get_account_transfers(single_input(inputs)) }
+    when "get_account_balances"
+      { "account_balances" => @client.get_account_balances(single_input(inputs)) }
     else
       flunk("unknown operation: #{operation}")
     end
+  end
+
+  def single_input(inputs)
+    flunk("expected a single input: #{inputs.inspect}") unless inputs.length == 1
+
+    inputs.first
   end
 
   def resolve_input(input, context)
@@ -93,13 +109,15 @@ class TestConformanceCases < Minitest::Test
   end
 
   def build_value(value, context)
-    type, data = value.first
+    type, data = single_entry(value)
 
     case type
     when "account"
       build_account(data, context)
     when "transfer"
       build_transfer(data, context)
+    when "account_filter"
+      build_account_filter(data, context)
     when "id"
       logical_id(data, context)
     when "u128"
@@ -113,8 +131,21 @@ class TestConformanceCases < Minitest::Test
     TigerBeetle::Account.new(
       id: build_value(account.fetch("id"), context),
       ledger: account.fetch("ledger"),
-      code: account.fetch("code")
+      code: account.fetch("code"),
+      flags: build_flags(account.fetch("flags", []), TigerBeetle::AccountFlags)
     )
+  end
+
+  def build_account_filter(filter, context)
+    TigerBeetle::AccountFilter.new(
+      account_id: build_value(filter.fetch("account_id"), context),
+      limit: filter.fetch("limit"),
+      flags: build_flags(filter.fetch("flags", []), TigerBeetle::AccountFilterFlags)
+    )
+  end
+
+  def build_flags(names, flags_module)
+    names.reduce(0) { |mask, name| mask | flags_module.const_get(name.upcase) }
   end
 
   def build_transfer(transfer, context)
@@ -141,7 +172,7 @@ class TestConformanceCases < Minitest::Test
   end
 
   def assert_result(assertion, result, case_description, context)
-    assertion_type, assertion_value = assertion.first
+    assertion_type, assertion_value = single_entry(assertion)
 
     case assertion_type
     when "assert_empty"
@@ -167,7 +198,7 @@ class TestConformanceCases < Minitest::Test
       assert_create_result(expected, actual, TigerBeetle::CreateAccountStatus, case_description)
     when "create_transfer_results"
       assert_create_result(expected, actual, TigerBeetle::CreateTransferStatus, case_description)
-    when "accounts", "transfers"
+    when "accounts", "transfers", "account_balances"
       assert_record(expected, actual, case_description, context)
     else
       flunk("unknown result type: #{result_type}")

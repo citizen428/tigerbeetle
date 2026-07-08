@@ -23,10 +23,10 @@ type conformanceSuite struct {
 }
 
 type conformanceCase struct {
-	Description string                 `json:"description"`
-	Arrange     []conformanceStep      `json:"arrange"`
-	Act         []conformanceStep      `json:"act"`
-	Assert      []conformanceAssertion `json:"assert"`
+	Description string            `json:"description"`
+	Arrange     []conformanceStep `json:"arrange"`
+	Act         []conformanceStep `json:"act"`
+	Assert      []json.RawMessage `json:"assert"`
 }
 
 type conformanceStep struct {
@@ -95,8 +95,6 @@ type conformanceInput struct {
 	Value json.RawMessage `json:"value"`
 }
 
-type conformanceAssertion map[string]json.RawMessage
-
 type conformanceContext struct {
 	ids  map[uint64]Uint128
 	vars map[string]interface{}
@@ -127,7 +125,7 @@ func TestConformance(t *testing.T) {
 						executeArrange(t, client, step, context)
 					}
 
-					if expectsFail(testCase.Assert) {
+					if expectsFail(t, testCase.Assert) {
 						assertFails(t, description, func() error {
 							_, err := executeAct(t, client, testCase, context)
 							return err
@@ -165,9 +163,10 @@ func executeAct(
 	return results, nil
 }
 
-func expectsFail(assertions []conformanceAssertion) bool {
+func expectsFail(t testing.TB, assertions []json.RawMessage) bool {
 	for _, assertion := range assertions {
-		if _, ok := assertion["assert_fail"]; ok {
+		tag, _ := decodeTaggedObject(t, assertion)
+		if tag == "assert_fail" {
 			return true
 		}
 	}
@@ -256,6 +255,10 @@ func executeOperation(
 		}
 
 		return client.LookupTransfers(ids)
+	case "get_account_transfers":
+		return client.GetAccountTransfers(accountFilterValue(t, inputs))
+	case "get_account_balances":
+		return client.GetAccountBalances(accountFilterValue(t, inputs))
 	default:
 		t.Fatalf("unknown operation: %s", operation.Name)
 		return nil, nil
@@ -286,6 +289,8 @@ func buildValue(t testing.TB, value json.RawMessage, context conformanceContext)
 		return buildAccount(t, data, context)
 	case "transfer":
 		return buildTransfer(t, data, context)
+	case "account_filter":
+		return buildAccountFilter(t, data, context)
 	case "id":
 		var id uint64
 		decodeJSON(t, data, &id)
@@ -313,13 +318,52 @@ func buildAccount(t testing.TB, data json.RawMessage, context conformanceContext
 		ID     json.RawMessage `json:"id"`
 		Ledger uint32          `json:"ledger"`
 		Code   uint16          `json:"code"`
+		Flags  []string        `json:"flags"`
 	}
 	decodeJSON(t, data, &account)
+
+	var flags AccountFlags
+	buildFlags(t, account.Flags, &flags)
 
 	return Account{
 		ID:     uint128Value(t, buildValue(t, account.ID, context)),
 		Ledger: account.Ledger,
 		Code:   account.Code,
+		Flags:  flags.ToUint16(),
+	}
+}
+
+func buildAccountFilter(
+	t testing.TB,
+	data json.RawMessage,
+	context conformanceContext,
+) AccountFilter {
+	var filter struct {
+		AccountID json.RawMessage `json:"account_id"`
+		Limit     uint32          `json:"limit"`
+		Flags     []string        `json:"flags"`
+	}
+	decodeJSON(t, data, &filter)
+
+	var flags AccountFilterFlags
+	buildFlags(t, filter.Flags, &flags)
+
+	return AccountFilter{
+		AccountID: uint128Value(t, buildValue(t, filter.AccountID, context)),
+		Limit:     filter.Limit,
+		Flags:     flags.ToUint32(),
+	}
+}
+
+// Sets the named boolean fields on a client flags struct, e.g. AccountFlags.
+func buildFlags(t testing.TB, names []string, flags interface{}) {
+	value := reflect.ValueOf(flags).Elem()
+	for _, name := range names {
+		field := recordField(value, name)
+		if !field.IsValid() {
+			t.Fatalf("unknown flag: %s", name)
+		}
+		field.SetBool(true)
 	}
 }
 
@@ -352,6 +396,17 @@ func uint128Value(t testing.TB, value interface{}) Uint128 {
 	return u128
 }
 
+func accountFilterValue(t testing.TB, inputs []interface{}) AccountFilter {
+	if len(inputs) != 1 {
+		t.Fatalf("expected a single account filter, got %d inputs", len(inputs))
+	}
+	filter, ok := inputs[0].(AccountFilter)
+	if !ok {
+		t.Fatalf("expected AccountFilter: %#v", inputs[0])
+	}
+	return filter
+}
+
 func logicalID(value uint64, context conformanceContext) Uint128 {
 	id, ok := context.ids[value]
 	if !ok {
@@ -363,7 +418,7 @@ func logicalID(value uint64, context conformanceContext) Uint128 {
 
 func assertResults(
 	t testing.TB,
-	expected []conformanceAssertion,
+	expected []json.RawMessage,
 	results []interface{},
 	description string,
 	context conformanceContext,
@@ -379,17 +434,12 @@ func assertResults(
 
 func assertResult(
 	t testing.TB,
-	assertion conformanceAssertion,
+	assertion json.RawMessage,
 	result interface{},
 	description string,
 	context conformanceContext,
 ) {
-	var assertionType string
-	var assertionValue json.RawMessage
-	for key, value := range assertion {
-		assertionType = key
-		assertionValue = value
-	}
+	assertionType, assertionValue := decodeTaggedObject(t, assertion)
 
 	switch assertionType {
 	case "assert_empty":
@@ -418,6 +468,8 @@ func resultName(t testing.TB, result interface{}) (string, int) {
 		return "create_transfer_results", len(result)
 	case []Transfer:
 		return "transfers", len(result)
+	case []AccountBalance:
+		return "account_balances", len(result)
 	default:
 		t.Fatalf("unknown result type: %#v", result)
 		return "", 0
