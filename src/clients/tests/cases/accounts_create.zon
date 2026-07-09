@@ -1,0 +1,49 @@
+.{
+    .suite = .create_accounts,
+    .cases = .{
+        .{
+            .description = "creates an account",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{
+                                .account = .{ .id = .new_id, .ledger = 1, .code = 1 },
+                            } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .create_account_results = .{.{ .status = .created }},
+                } },
+            },
+        },
+        .{
+            .description = "returns exists for a duplicate account",
+            .arrange = .{
+                .{
+                    .assign = .{
+                        .name = "account",
+                        .value = .{ .account = .{ .id = .new_id, .ledger = 1, .code = 1 } },
+                    },
+                },
+                .{
+                    .operation = .{ .name = .create_accounts, .inputs = .{.{ .from = "account" }} },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{ .name = .create_accounts, .inputs = .{.{ .from = "account" }} },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .create_account_results = .{.{ .status = .exists }},
+                } },
+            },
+        },
+    },
+}

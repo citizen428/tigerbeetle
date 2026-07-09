@@ -1,0 +1,72 @@
+.{
+    .suite = .create_transfers_concurrent,
+    .cases = .{
+        .{
+            .description = "applies transfers submitted concurrently",
+            .arrange = .{
+                .{ .assign = .{ .name = "debit_account_id", .value = .new_id } },
+                .{ .assign = .{ .name = "credit_account_id", .value = .new_id } },
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "debit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "credit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .concurrency = 100,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .new_id,
+                                .debit_account_id = .{ .from = "debit_account_id" },
+                                .credit_account_id = .{ .from = "credit_account_id" },
+                                .amount = 10,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{
+                            .{ .from = "debit_account_id" },
+                            .{ .from = "credit_account_id" },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .accounts = .{
+                        .{
+                            .id = .{ .from = "debit_account_id" },
+                            .debits_posted = 1000,
+                            .credits_posted = 0,
+                        },
+                        .{
+                            .id = .{ .from = "credit_account_id" },
+                            .debits_posted = 0,
+                            .credits_posted = 1000,
+                        },
+                    },
+                } },
+            },
+        },
+    },
+}

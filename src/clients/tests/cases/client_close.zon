@@ -1,0 +1,26 @@
+.{
+    .suite = .close_client,
+    .cases = .{
+        .{
+            .description = "fails operations after close",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .close_client,
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{
+                            .{ .value = .new_id },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_fail = true },
+            },
+        },
+    },
+}

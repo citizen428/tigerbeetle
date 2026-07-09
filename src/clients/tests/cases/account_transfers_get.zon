@@ -1,0 +1,102 @@
+.{
+    .suite = .get_account_transfers,
+    .cases = .{
+        .{
+            .description = "returns debit and credit transfers for an account",
+            .arrange = .{
+                .{ .assign = .{ .name = "account_1_id", .value = .new_id } },
+                .{ .assign = .{ .name = "account_2_id", .value = .new_id } },
+                .{ .assign = .{ .name = "account_3_id", .value = .new_id } },
+                .{ .assign = .{ .name = "debit_transfer_id", .value = .new_id } },
+                .{ .assign = .{ .name = "credit_transfer_id", .value = .new_id } },
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "account_1_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "account_2_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "account_3_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .from = "debit_transfer_id" },
+                                .debit_account_id = .{ .from = "account_1_id" },
+                                .credit_account_id = .{ .from = "account_2_id" },
+                                .amount = 10,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .transfer = .{
+                                .id = .{ .from = "credit_transfer_id" },
+                                .debit_account_id = .{ .from = "account_3_id" },
+                                .credit_account_id = .{ .from = "account_1_id" },
+                                .amount = 20,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .{ .from = "account_1_id" },
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .transfers = .{
+                        .{ .id = .{ .from = "debit_transfer_id" }, .amount = 10 },
+                        .{ .id = .{ .from = "credit_transfer_id" }, .amount = 20 },
+                    },
+                } },
+            },
+        },
+        .{
+            .description = "returns no transfers for an unused account",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .get_account_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .account_filter = .{
+                                .account_id = .new_id,
+                                .limit = 10,
+                                .flags = .{ .debits, .credits },
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .transfers },
+            },
+        },
+    },
+}

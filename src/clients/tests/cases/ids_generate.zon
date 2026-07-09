@@ -1,0 +1,37 @@
+.{
+    .suite = .generate_ids,
+    .cases = .{
+        .{
+            .description = "generates unique ids",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .generate_ids,
+                        .inputs = .{
+                            .{ .value = .{ .count = 1000 } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_unique = .ids },
+            },
+        },
+        .{
+            .description = "generates monotonically increasing ids",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .generate_ids,
+                        .inputs = .{
+                            .{ .value = .{ .count = 100 } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_ascending = .ids },
+            },
+        },
+    },
+}

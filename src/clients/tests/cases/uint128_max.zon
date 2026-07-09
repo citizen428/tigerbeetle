@@ -1,0 +1,43 @@
+.{
+    .suite = .uint128_range,
+    .cases = .{
+        .{
+            .description = "accepts the maximum u128",
+            .arrange = .{
+                .{
+                    .assign = .{
+                        .name = "uint128_max",
+                        .value = .{ .u128 = 340282366920938463463374607431768211455 },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{.{ .from = "uint128_max" }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .accounts },
+            },
+        },
+        .{
+            .description = "rejects a u128 above the maximum",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .lookup_accounts,
+                        .inputs = .{.{
+                            .value = .{ .u128 = 340282366920938463463374607431768211456 },
+                        }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_fail = true },
+            },
+        },
+    },
+}

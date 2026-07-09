@@ -1,0 +1,107 @@
+.{
+    .suite = .create_transfers,
+    .cases = .{
+        .{
+            .description = "creates a transfer",
+            .arrange = .{
+                .{ .assign = .{ .name = "debit_account_id", .value = .new_id } },
+                .{ .assign = .{ .name = "credit_account_id", .value = .new_id } },
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "debit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "credit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{
+                            .{ .value = .{ .transfer = .{
+                                .id = .new_id,
+                                .debit_account_id = .{ .from = "debit_account_id" },
+                                .credit_account_id = .{ .from = "credit_account_id" },
+                                .amount = 100,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .create_transfer_results = .{.{ .status = .created }},
+                } },
+            },
+        },
+        .{
+            .description = "returns exists for a duplicate transfer",
+            .arrange = .{
+                .{ .assign = .{ .name = "debit_account_id", .value = .new_id } },
+                .{ .assign = .{ .name = "credit_account_id", .value = .new_id } },
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "debit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "credit_account_id" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+                .{
+                    .assign = .{
+                        .name = "transfer",
+                        .value = .{ .transfer = .{
+                            .id = .new_id,
+                            .debit_account_id = .{ .from = "debit_account_id" },
+                            .credit_account_id = .{ .from = "credit_account_id" },
+                            .amount = 100,
+                            .ledger = 1,
+                            .code = 1,
+                        } },
+                    },
+                },
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{.{ .from = "transfer" }},
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .create_transfers,
+                        .inputs = .{.{ .from = "transfer" }},
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .create_transfer_results = .{.{ .status = .exists }},
+                } },
+            },
+        },
+    },
+}

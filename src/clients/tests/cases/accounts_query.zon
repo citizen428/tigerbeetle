@@ -1,0 +1,84 @@
+.{
+    .suite = .query_accounts,
+    .cases = .{
+        .{
+            .description = "returns accounts matching user data",
+            .arrange = .{
+                .{ .assign = .{ .name = "account_1_id", .value = .new_id } },
+                .{ .assign = .{ .name = "account_2_id", .value = .new_id } },
+                .{ .assign = .{ .name = "user_data", .value = .new_id } },
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "account_1_id" },
+                                .user_data_128 = .{ .from = "user_data" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .from = "account_2_id" },
+                                .user_data_128 = .{ .from = "user_data" },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .new_id,
+                                .user_data_128 = .new_id,
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .query_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .query_filter = .{
+                                .user_data_128 = .{ .from = "user_data" },
+                                .limit = 10,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .accounts = .{
+                        .{
+                            .id = .{ .from = "account_1_id" },
+                            .user_data_128 = .{ .from = "user_data" },
+                        },
+                        .{
+                            .id = .{ .from = "account_2_id" },
+                            .user_data_128 = .{ .from = "user_data" },
+                        },
+                    },
+                } },
+            },
+        },
+        .{
+            .description = "returns no accounts for unused user data",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .query_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .query_filter = .{
+                                .user_data_128 = .new_id,
+                                .limit = 10,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .accounts },
+            },
+        },
+    },
+}
