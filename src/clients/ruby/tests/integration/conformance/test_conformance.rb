@@ -87,6 +87,10 @@ class TestConformanceCases < Minitest::Test
       { "transfers" => @client.get_account_transfers(single_input(inputs)) }
     when "get_account_balances"
       { "account_balances" => @client.get_account_balances(single_input(inputs)) }
+    when "query_accounts"
+      { "accounts" => @client.query_accounts(single_input(inputs)) }
+    when "query_transfers"
+      { "transfers" => @client.query_transfers(single_input(inputs)) }
     else
       flunk("unknown operation: #{operation}")
     end
@@ -118,6 +122,8 @@ class TestConformanceCases < Minitest::Test
       build_transfer(data, context)
     when "account_filter"
       build_account_filter(data, context)
+    when "query_filter"
+      build_query_filter(data, context)
     when "id"
       logical_id(data, context)
     when "u128"
@@ -130,6 +136,7 @@ class TestConformanceCases < Minitest::Test
   def build_account(account, context)
     TigerBeetle::Account.new(
       id: build_value(account.fetch("id"), context),
+      user_data_128: resolve_value(account.fetch("user_data_128", 0), context),
       ledger: account.fetch("ledger"),
       code: account.fetch("code"),
       flags: build_flags(account.fetch("flags", []), TigerBeetle::AccountFlags)
@@ -144,6 +151,14 @@ class TestConformanceCases < Minitest::Test
     )
   end
 
+  def build_query_filter(filter, context)
+    TigerBeetle::QueryFilter.new(
+      user_data_128: build_value(filter.fetch("user_data_128"), context),
+      limit: filter.fetch("limit"),
+      flags: build_flags(filter.fetch("flags", []), TigerBeetle::QueryFilterFlags)
+    )
+  end
+
   def build_flags(names, flags_module)
     names.reduce(0) { |mask, name| mask | flags_module.const_get(name.upcase) }
   end
@@ -154,6 +169,7 @@ class TestConformanceCases < Minitest::Test
       debit_account_id: build_value(transfer.fetch("debit_account_id"), context),
       credit_account_id: build_value(transfer.fetch("credit_account_id"), context),
       amount: transfer.fetch("amount"),
+      user_data_128: resolve_value(transfer.fetch("user_data_128", 0), context),
       ledger: transfer.fetch("ledger"),
       code: transfer.fetch("code")
     )

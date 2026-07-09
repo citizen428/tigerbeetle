@@ -1,0 +1,76 @@
+.{
+    .suite = .query_accounts,
+    .cases = .{
+        .{
+            .description = "returns accounts matching user data",
+            .arrange = .{
+                .{
+                    .operation = .{
+                        .name = .create_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .account = .{
+                                .id = .{ .id = 1 },
+                                .user_data_128 = .{ .id = 4 },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .id = 2 },
+                                .user_data_128 = .{ .id = 4 },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                            .{ .value = .{ .account = .{
+                                .id = .{ .id = 3 },
+                                .user_data_128 = .{ .id = 5 },
+                                .ledger = 1,
+                                .code = 1,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .query_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .query_filter = .{
+                                .user_data_128 = .{ .id = 4 },
+                                .limit = 10,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_equal = .{
+                    .actual = .accounts,
+                    .expected = .{
+                        .{ .id = .{ .id = 1 }, .user_data_128 = .{ .id = 4 } },
+                        .{ .id = .{ .id = 2 }, .user_data_128 = .{ .id = 4 } },
+                    },
+                } },
+            },
+        },
+        .{
+            .description = "returns no accounts for unused user data",
+            .act = .{
+                .{
+                    .operation = .{
+                        .name = .query_accounts,
+                        .inputs = .{
+                            .{ .value = .{ .query_filter = .{
+                                .user_data_128 = .{ .id = 1 },
+                                .limit = 10,
+                            } } },
+                        },
+                    },
+                },
+            },
+            .assert = .{
+                .{ .assert_empty = .accounts },
+            },
+        },
+    },
+}

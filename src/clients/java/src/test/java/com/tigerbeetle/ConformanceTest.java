@@ -155,6 +155,10 @@ public class ConformanceTest {
                 return client.getAccountTransfers(accountFilterValue(inputs));
             case "get_account_balances":
                 return client.getAccountBalances(accountFilterValue(inputs));
+            case "query_accounts":
+                return client.queryAccounts(queryFilterValue(inputs));
+            case "query_transfers":
+                return client.queryTransfers(queryFilterValue(inputs));
             default:
                 fail("unknown operation: " + name);
                 return null;
@@ -188,6 +192,8 @@ public class ConformanceTest {
                 return element;
             case "account_filter":
                 return buildAccountFilter(element);
+            case "query_filter":
+                return buildQueryFilter(element);
             case "id":
                 return logicalId(Long.parseLong(element.getTextContent()));
             case "u128":
@@ -201,6 +207,11 @@ public class ConformanceTest {
     private void addAccount(final AccountBatch accounts, final Element account) throws Exception {
         accounts.add();
         accounts.setId(uint128Value(buildValue(child(account, "id"))));
+
+        final var userData128 = childOptional(account, "user_data_128");
+        if (userData128 != null) {
+            accounts.setUserData128(uint128Value(buildValue(userData128)));
+        }
 
         final var ledger = childOptional(account, "ledger");
         if (ledger != null) {
@@ -239,6 +250,27 @@ public class ConformanceTest {
         return filter;
     }
 
+    private QueryFilter buildQueryFilter(final Element element) {
+        final var filter = new QueryFilter();
+        filter.setUserData128(uint128Value(buildValue(child(element, "user_data_128"))));
+
+        final var limit = childOptional(element, "limit");
+        if (limit != null) {
+            filter.setLimit(Integer.parseInt(limit.getTextContent()));
+        }
+
+        final var flags = childOptional(element, "flags");
+        if (flags != null) {
+            try {
+                filter.setFlags(flagsValue(flags, QueryFilterFlags.class), true);
+            } catch (Exception exception) {
+                fail(exception.toString());
+            }
+        }
+
+        return filter;
+    }
+
     private static int flagsValue(final Element flags, final Class<?> flagsClass) throws Exception {
         var value = 0;
         for (final var flag : children(flags)) {
@@ -254,6 +286,13 @@ public class ConformanceTest {
         return (AccountFilter) inputs.get(0);
     }
 
+    private static QueryFilter queryFilterValue(final List<Object> inputs) {
+        if (inputs.size() != 1 || !(inputs.get(0) instanceof QueryFilter)) {
+            fail("expected a single query filter: " + inputs);
+        }
+        return (QueryFilter) inputs.get(0);
+    }
+
     private void addTransfer(final TransferBatch transfers, final Element transfer) {
         transfers.add();
         transfers.setId(uint128Value(buildValue(child(transfer, "id"))));
@@ -264,6 +303,11 @@ public class ConformanceTest {
         final var amount = childOptional(transfer, "amount");
         if (amount != null) {
             transfers.setAmount(new BigInteger(amount.getTextContent()));
+        }
+
+        final var userData128 = childOptional(transfer, "user_data_128");
+        if (userData128 != null) {
+            transfers.setUserData128(uint128Value(buildValue(userData128)));
         }
 
         final var ledger = childOptional(transfer, "ledger");

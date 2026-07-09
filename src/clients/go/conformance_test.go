@@ -259,6 +259,10 @@ func executeOperation(
 		return client.GetAccountTransfers(accountFilterValue(t, inputs))
 	case "get_account_balances":
 		return client.GetAccountBalances(accountFilterValue(t, inputs))
+	case "query_accounts":
+		return client.QueryAccounts(queryFilterValue(t, inputs))
+	case "query_transfers":
+		return client.QueryTransfers(queryFilterValue(t, inputs))
 	default:
 		t.Fatalf("unknown operation: %s", operation.Name)
 		return nil, nil
@@ -291,6 +295,8 @@ func buildValue(t testing.TB, value json.RawMessage, context conformanceContext)
 		return buildTransfer(t, data, context)
 	case "account_filter":
 		return buildAccountFilter(t, data, context)
+	case "query_filter":
+		return buildQueryFilter(t, data, context)
 	case "id":
 		var id uint64
 		decodeJSON(t, data, &id)
@@ -315,10 +321,11 @@ func u128(t testing.TB, value string) Uint128 {
 
 func buildAccount(t testing.TB, data json.RawMessage, context conformanceContext) Account {
 	var account struct {
-		ID     json.RawMessage `json:"id"`
-		Ledger uint32          `json:"ledger"`
-		Code   uint16          `json:"code"`
-		Flags  []string        `json:"flags"`
+		ID          json.RawMessage `json:"id"`
+		UserData128 json.RawMessage `json:"user_data_128"`
+		Ledger      uint32          `json:"ledger"`
+		Code        uint16          `json:"code"`
+		Flags       []string        `json:"flags"`
 	}
 	decodeJSON(t, data, &account)
 
@@ -326,10 +333,11 @@ func buildAccount(t testing.TB, data json.RawMessage, context conformanceContext
 	buildFlags(t, account.Flags, &flags)
 
 	return Account{
-		ID:     uint128Value(t, buildValue(t, account.ID, context)),
-		Ledger: account.Ledger,
-		Code:   account.Code,
-		Flags:  flags.ToUint16(),
+		ID:          uint128Value(t, buildValue(t, account.ID, context)),
+		UserData128: optionalUint128(t, account.UserData128, context),
+		Ledger:      account.Ledger,
+		Code:        account.Code,
+		Flags:       flags.ToUint16(),
 	}
 }
 
@@ -355,6 +363,28 @@ func buildAccountFilter(
 	}
 }
 
+func buildQueryFilter(
+	t testing.TB,
+	data json.RawMessage,
+	context conformanceContext,
+) QueryFilter {
+	var filter struct {
+		UserData128 json.RawMessage `json:"user_data_128"`
+		Limit       uint32          `json:"limit"`
+		Flags       []string        `json:"flags"`
+	}
+	decodeJSON(t, data, &filter)
+
+	var flags QueryFilterFlags
+	buildFlags(t, filter.Flags, &flags)
+
+	return QueryFilter{
+		UserData128: uint128Value(t, buildValue(t, filter.UserData128, context)),
+		Limit:       filter.Limit,
+		Flags:       flags.ToUint32(),
+	}
+}
+
 // Sets the named boolean fields on a client flags struct, e.g. AccountFlags.
 func buildFlags(t testing.TB, names []string, flags interface{}) {
 	value := reflect.ValueOf(flags).Elem()
@@ -373,6 +403,7 @@ func buildTransfer(t testing.TB, data json.RawMessage, context conformanceContex
 		DebitAccountID  json.RawMessage `json:"debit_account_id"`
 		CreditAccountID json.RawMessage `json:"credit_account_id"`
 		Amount          uint64          `json:"amount"`
+		UserData128     json.RawMessage `json:"user_data_128"`
 		Ledger          uint32          `json:"ledger"`
 		Code            uint16          `json:"code"`
 	}
@@ -383,6 +414,7 @@ func buildTransfer(t testing.TB, data json.RawMessage, context conformanceContex
 		DebitAccountID:  uint128Value(t, buildValue(t, transfer.DebitAccountID, context)),
 		CreditAccountID: uint128Value(t, buildValue(t, transfer.CreditAccountID, context)),
 		Amount:          ToUint128(transfer.Amount),
+		UserData128:     optionalUint128(t, transfer.UserData128, context),
 		Ledger:          transfer.Ledger,
 		Code:            transfer.Code,
 	}
@@ -396,6 +428,14 @@ func uint128Value(t testing.TB, value interface{}) Uint128 {
 	return u128
 }
 
+// Builds an optional record field, e.g. user_data_128; absent means zero.
+func optionalUint128(t testing.TB, data json.RawMessage, context conformanceContext) Uint128 {
+	if data == nil {
+		return Uint128{}
+	}
+	return uint128Value(t, buildValue(t, data, context))
+}
+
 func accountFilterValue(t testing.TB, inputs []interface{}) AccountFilter {
 	if len(inputs) != 1 {
 		t.Fatalf("expected a single account filter, got %d inputs", len(inputs))
@@ -403,6 +443,17 @@ func accountFilterValue(t testing.TB, inputs []interface{}) AccountFilter {
 	filter, ok := inputs[0].(AccountFilter)
 	if !ok {
 		t.Fatalf("expected AccountFilter: %#v", inputs[0])
+	}
+	return filter
+}
+
+func queryFilterValue(t testing.TB, inputs []interface{}) QueryFilter {
+	if len(inputs) != 1 {
+		t.Fatalf("expected a single query filter, got %d inputs", len(inputs))
+	}
+	filter, ok := inputs[0].(QueryFilter)
+	if !ok {
+		t.Fatalf("expected QueryFilter: %#v", inputs[0])
 	}
 	return filter
 }
