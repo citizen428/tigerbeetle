@@ -303,7 +303,7 @@ pub fn build_with_options(
     });
 
     // zig build conformance:dump
-    build_conformance(b, .{
+    const conformance_module = build_conformance(b, .{
         .check = build_steps.check,
         .dump = build_steps.conformance_dump,
     }, .{
@@ -472,6 +472,7 @@ pub fn build_with_options(
         .mode = options.mode,
     });
     build_ruby_client(b, build_steps.clients_ruby, .{
+        .conformance_module = conformance_module,
         .vsr_module = vsr_module,
         .vsr_options = vsr_options,
         .tb_client_header = tb_client.header,
@@ -736,16 +737,18 @@ fn build_conformance(
         stdx_module: *std.Build.Module,
         vsr_module: *std.Build.Module,
     },
-) void {
+) *std.Build.Module {
+    const conformance_module = b.createModule(.{
+        .root_source_file = b.path("src/clients/tests/conformance_test.zig"),
+        .target = b.graph.host,
+    });
+    conformance_module.addImport("stdx", options.stdx_module);
+    conformance_module.addImport("vsr", options.vsr_module);
+
     const conformance_test = b.addExecutable(.{
         .name = "conformance_test",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/clients/tests/conformance_test.zig"),
-            .target = b.graph.host,
-        }),
+        .root_module = conformance_module,
     });
-    conformance_test.root_module.addImport("stdx", options.stdx_module);
-    conformance_test.root_module.addImport("vsr", options.vsr_module);
 
     const run = b.addRunArtifact(conformance_test);
     steps.check.dependOn(&run.step);
@@ -754,6 +757,8 @@ fn build_conformance(
     dump.addArg("--debug");
     dump.has_side_effects = true;
     steps.dump.dependOn(&dump.step);
+
+    return conformance_module;
 }
 
 fn build_tigerbeetle(
@@ -2099,6 +2104,7 @@ fn build_ruby_client(
     b: *std.Build,
     step_clients_ruby: *std.Build.Step,
     options: struct {
+        conformance_module: *std.Build.Module,
         vsr_module: *std.Build.Module,
         vsr_options: *std.Build.Step.Options,
         tb_client_header: std.Build.LazyPath,
@@ -2106,6 +2112,19 @@ fn build_ruby_client(
         mode: std.builtin.OptimizeMode,
     },
 ) void {
+    const ruby_conformance_generator = b.addExecutable(.{
+        .name = "ruby_conformance",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clients/ruby/ruby_conformance.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    ruby_conformance_generator.root_module.addImport("conformance", options.conformance_module);
+    step_clients_ruby.dependOn(&Generated.file(b, .{
+        .generator = ruby_conformance_generator,
+        .path = "./src/clients/ruby/tests/integration/test_conformance.rb",
+    }).step);
+
     // Ruby bindings for flags, structs, etc.
     step_clients_ruby.dependOn(&build_ruby_client_generate(b, .ruby, .{
         .path = "./src/clients/ruby/src/tigerbeetle/bindings.rb",
