@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const conformance = @import("conformance");
 
 const types = conformance.types;
+const utils = conformance.utils;
 
 const indent_width = 4;
 const member_indent_level = 1; // class > member
@@ -170,7 +171,7 @@ fn emit_row_group(
 ) !void {
     const arena = scope.arena;
     const origin = steps[start].binding.value.index;
-    const batch = try java_identifier(arena, origin.reference);
+    const batch = try utils.to_case(arena, .camelCase, origin.reference);
 
     var rows = std.ArrayList([]const u8).init(arena);
     for (steps[start..], start..) |step, index| {
@@ -200,7 +201,7 @@ fn emit_row_group(
             if (!std.mem.eql(u8, comparison.reference, row)) continue;
             consumed[index] = true;
 
-            const property = try java_pascal_case(arena, comparison.field.name);
+            const property = try utils.to_case(arena, .PascalCase, comparison.field.name);
             const value = try render_field_value(arena, comparison.field);
             try write_indent(writer, statement_indent_level);
             if (greater_than) {
@@ -254,7 +255,7 @@ fn emit_step(writer: std.io.AnyWriter, scope: *Scope, step: types.Step) !void {
 
 fn emit_binding(writer: std.io.AnyWriter, scope: *Scope, binding: types.Binding) !void {
     const arena = scope.arena;
-    const name = try java_identifier(arena, binding.name);
+    const name = try utils.to_case(arena, .camelCase, binding.name);
     switch (binding.value) {
         .generate_id => {
             try write_indent(writer, statement_indent_level);
@@ -272,7 +273,7 @@ fn emit_binding(writer: std.io.AnyWriter, scope: *Scope, binding: types.Binding)
             try writer.writeAll("}\n");
         },
         .index => |index| {
-            const reference = try java_identifier(arena, index.reference);
+            const reference = try utils.to_case(arena, .camelCase, index.reference);
             try write_indent(writer, statement_indent_level);
             try writer.print("final var {s} = {s}[{d}];\n", .{ name, reference, index.index });
         },
@@ -320,7 +321,7 @@ fn hoist_record(
         }
         const local = try std.fmt.allocPrint(arena, "{s}{s}", .{
             name,
-            try java_pascal_case(arena, field.name),
+            try utils.to_case(arena, .PascalCase, field.name),
         });
         try write_indent(writer, statement_indent_level);
         try writer.print("final var {s} = UInt128.id();\n", .{local});
@@ -547,7 +548,7 @@ fn emit_record_into(
             writer,
             indent_level,
             batch,
-            try java_pascal_case(arena, field.name),
+            try utils.to_case(arena, .PascalCase, field.name),
             try render_field_value(arena, field),
         );
     }
@@ -567,7 +568,7 @@ fn emit_filter_field(
             try write_indent(writer, indent_level);
             try writer.print("{s}.set{s}(true);\n", .{
                 name,
-                try java_pascal_case(arena, flag.name),
+                try utils.to_case(arena, .PascalCase, flag.name),
             });
         }
         return;
@@ -576,7 +577,7 @@ fn emit_filter_field(
         writer,
         indent_level,
         name,
-        try java_pascal_case(arena, field.name),
+        try utils.to_case(arena, .PascalCase, field.name),
         try render_field_value(arena, field),
     );
 }
@@ -608,7 +609,7 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: types.Asse
     const arena = scope.arena;
     switch (assertion) {
         .equal => |equal| {
-            const actual = try java_identifier(arena, equal.actual);
+            const actual = try utils.to_case(arena, .camelCase, equal.actual);
             try write_indent(writer, statement_indent_level);
             try writer.print("assertEquals({d}, {s}.getLength());\n", .{
                 equal.expected.len,
@@ -626,11 +627,11 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: types.Asse
         .empty => |actual| {
             try write_indent(writer, statement_indent_level);
             try writer.print("assertEquals(0, {s}.getLength());\n", .{
-                try java_identifier(arena, actual),
+                try utils.to_case(arena, .camelCase, actual),
             });
         },
         .unique => |ids| {
-            const name = try java_identifier(arena, ids);
+            const name = try utils.to_case(arena, .camelCase, ids);
             try write_indent(writer, statement_indent_level);
             try writer.writeAll("final var seen = new HashSet<BigInteger>();\n");
             try write_indent(writer, statement_indent_level);
@@ -641,7 +642,7 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: types.Asse
             try writer.writeAll("}\n");
         },
         .ascending => |ids| {
-            const name = try java_identifier(arena, ids);
+            const name = try utils.to_case(arena, .camelCase, ids);
             try write_indent(writer, statement_indent_level);
             try writer.print("for (int index = 1; index < {s}.length; index++) {{\n", .{name});
             try write_indent(writer, statement_indent_level + 1);
@@ -685,7 +686,7 @@ fn emit_field_equal(
         assert_function(field),
         try render_field_value(arena, field),
         actual,
-        try java_pascal_case(arena, field.name),
+        try utils.to_case(arena, .PascalCase, field.name),
     });
 }
 
@@ -711,8 +712,8 @@ fn render_field_reference(
     comparison: types.Assertion.FieldComparison,
 ) ![]const u8 {
     return std.fmt.allocPrint(arena, "{s}.get{s}()", .{
-        try java_identifier(arena, comparison.reference),
-        try java_pascal_case(arena, comparison.field.name),
+        try utils.to_case(arena, .camelCase, comparison.reference),
+        try utils.to_case(arena, .PascalCase, comparison.field.name),
     });
 }
 
@@ -721,7 +722,7 @@ fn render_field_value(arena: std.mem.Allocator, field: types.Field) ![]const u8 
         .enum_literal => |literal| {
             return std.fmt.allocPrint(arena, "{s}.{s}", .{
                 field.type.enum_name,
-                try java_pascal_case(arena, literal),
+                try utils.to_case(arena, .PascalCase, literal),
             });
         },
         .record => |flags| {
@@ -732,7 +733,7 @@ fn render_field_value(arena: std.mem.Allocator, field: types.Field) ![]const u8 
                 if (index > 0) try text.appendSlice(" | ");
                 try text.writer().print("{s}.{s}", .{
                     @tagName(flags.type),
-                    try java_constant(arena, flag.name),
+                    try utils.to_case(arena, .UPPER_CASE, flag.name),
                 });
             }
             return text.items;
@@ -748,10 +749,10 @@ fn render_field_value(arena: std.mem.Allocator, field: types.Field) ![]const u8 
             return text;
         },
         .generate_id => return "UInt128.id()",
-        .reference => |name| return java_identifier(arena, name),
+        .reference => |name| return utils.to_case(arena, .camelCase, name),
         .index => |index| {
             return std.fmt.allocPrint(arena, "{s}[{d}]", .{
-                try java_identifier(arena, index.reference),
+                try utils.to_case(arena, .camelCase, index.reference),
                 index.index,
             });
         },
@@ -764,11 +765,11 @@ fn render_field_value(arena: std.mem.Allocator, field: types.Field) ![]const u8 
 fn render_id(arena: std.mem.Allocator, expression: types.Expression) ![]const u8 {
     switch (expression) {
         .generate_id => return "UInt128.id()",
-        .reference => |name| return java_identifier(arena, name),
+        .reference => |name| return utils.to_case(arena, .camelCase, name),
         .integer => |text| return render_uint128(arena, text),
         .index => |index| {
             return std.fmt.allocPrint(arena, "{s}[{d}]", .{
-                try java_identifier(arena, index.reference),
+                try utils.to_case(arena, .camelCase, index.reference),
                 index.index,
             });
         },
@@ -804,29 +805,6 @@ fn java_operation_name(name: types.Call.Name) []const u8 {
         .query_transfers => "queryTransfers",
         .close_client, .sleep_ms => unreachable,
     };
-}
-
-fn java_pascal_case(arena: std.mem.Allocator, name: []const u8) ![]const u8 {
-    var text = std.ArrayList(u8).init(arena);
-    var words = std.mem.tokenizeScalar(u8, name, '_');
-    while (words.next()) |word| {
-        try text.append(std.ascii.toUpper(word[0]));
-        try text.appendSlice(word[1..]);
-    }
-    return text.items;
-}
-
-fn java_identifier(arena: std.mem.Allocator, name: []const u8) ![]const u8 {
-    const pascal = try java_pascal_case(arena, name);
-    var text = std.ArrayList(u8).init(arena);
-    try text.append(std.ascii.toLower(pascal[0]));
-    try text.appendSlice(pascal[1..]);
-    return text.items;
-}
-
-fn java_constant(arena: std.mem.Allocator, name: []const u8) ![]const u8 {
-    const result = try arena.alloc(u8, name.len);
-    return std.ascii.upperString(result, name);
 }
 
 fn emit_omission(
