@@ -71,6 +71,14 @@ pub const Assertion = union(enum) {
     fail: Call,
 
     pub const FieldComparison = struct {
+        actual: FieldReference,
+        expected: union(enum) {
+            expression: Expression,
+            field_reference: FieldReference,
+        },
+    };
+
+    pub const FieldReference = struct {
         reference: []const u8,
         field: Field,
     };
@@ -80,7 +88,7 @@ pub const Assertion = union(enum) {
 // later transform them back into the correct types (e.g. Account) in the emitters.
 pub const Record = struct {
     type: Type,
-    fields: []const Field,
+    fields: []const FieldValue,
 
     pub const Type = stdx.EnumType(api_decl_names(is_record));
 
@@ -103,9 +111,13 @@ pub const Record = struct {
     }
 };
 
+pub const FieldValue = struct {
+    field: Field,
+    value: Expression,
+};
+
 pub const Field = struct {
     name: []const u8,
-    value: Expression,
     type: Type,
 
     // Resolved when the field is parsed, so emitters never reflect on the API structs.

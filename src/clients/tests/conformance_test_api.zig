@@ -3,6 +3,12 @@
 //! Suite files import this module and are parsed, never compiled or run.
 //! This file serves both as documentation, and as a way to silence LSP warnings
 //! regarding calls to unknown functions.
+//!
+//! Only `U128`, `Account`, and `Transfer` can be bound with `const`: a bound
+//! value needs a standalone representation in every client. Flags and filters
+//! would qualify too, we just haven't needed to bind one yet. Results never
+//! will — Java only sees them as batch cursor rows, so there is nothing to
+//! assign to a local.
 
 const tb = @import("vsr").tigerbeetle;
 
@@ -93,6 +99,12 @@ pub fn sleep_ms(ms: u32) void {
 /// Restricts the case to clients whose integers are unbounded so we can test
 /// for things like u128 overflow.
 pub fn requires_unbounded_integers() void {
+    @panic(ct_compile_error);
+}
+
+/// Restricts the case to clients that can pass a fractional value where an
+/// integer is expected, so we can test that it is rejected.
+pub fn requires_fractional_amounts() void {
     @panic(ct_compile_error);
 }
 

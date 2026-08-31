@@ -204,9 +204,21 @@ fn parse_binding(parser: *Parser, var_decl: std.zig.Ast.full.VarDecl) !ast.Bindi
     // NOTE: This may need to change, it mirrors current DSL use.
     switch (value) {
         .generate_id, .generate_ids, .index => {},
-        // TODO: Revisit this limitation later.
-        .record => |record| if (ast.Record.is_flags(record.type)) {
-            return parser.fail(name_token, "flags cannot be bound on their own", .{});
+        // Bindable record types are documented in conformance_test_api.zig.
+        .record => |record| switch (record.type) {
+            .U128, .Account, .Transfer => {},
+            .AccountBalance,
+            .AccountFilter,
+            .AccountFilterFlags,
+            .AccountFlags,
+            .CreateAccountResult,
+            .CreateTransferResult,
+            .QueryFilter,
+            .QueryFilterFlags,
+            .TransferFlags,
+            => return parser.fail(name_token, "a {s} cannot be bound", .{
+                @tagName(record.type),
+            }),
         },
         .call => |call| if (operation_result(call.name) == null) {
             return parser.fail(name_token, "'{s}' has no result", .{@tagName(call.name)});
@@ -264,7 +276,11 @@ fn parse_expression(parser: *Parser, node: std.zig.Ast.Node.Index) anyerror!ast.
         }
         if (std.mem.eql(u8, name, "generate_ids")) {
             const count_node = try one_argument(parser, call, "(count)");
-            return .{ .generate_ids = try parse_u32(parser, count_node) };
+            const count = try parse_u32(parser, count_node);
+            if (count == 0) {
+                return parser.fail(tree.firstToken(count_node), "count must be positive", .{});
+            }
+            return .{ .generate_ids = count };
         }
         if (std.meta.stringToEnum(ast.Call.Name, name)) |operation| {
             return .{ .call = try parse_operation(parser, operation, call) };
@@ -285,7 +301,7 @@ fn parse_expression(parser: *Parser, node: std.zig.Ast.Node.Index) anyerror!ast.
 }
 
 // Extracts the trailing name from a `Namespace.name` field access (`data.rhs` is its token).
-fn parse_field_access_name(
+fn parse_qualified_name(
     parser: *Parser,
     node: std.zig.Ast.Node.Index,
     comptime message: []const u8,
@@ -302,11 +318,11 @@ fn parse_field_access_name(
 }
 
 fn parse_call_name(parser: *Parser, call: std.zig.Ast.full.Call) ![]const u8 {
-    return parse_field_access_name(parser, call.ast.fn_expr, "invalid call");
+    return parse_qualified_name(parser, call.ast.fn_expr, "invalid call");
 }
 
 fn parse_record_type(parser: *Parser, node: std.zig.Ast.Node.Index) !ast.Record.Type {
-    const name = try parse_field_access_name(parser, node, "invalid type");
+    const name = try parse_qualified_name(parser, node, "invalid type");
     return std.meta.stringToEnum(ast.Record.Type, name) orelse
         parser.fail(parser.tree.nodes.items(.data)[node].rhs, "unknown type '{s}'", .{name});
 }
@@ -331,8 +347,10 @@ fn parse_operation(
         },
         .sleep_ms => {
             const node = try one_argument(parser, call, "(ms)");
+            _ = try parse_u32(parser, node);
+            const token = parser.tree.nodes.items(.main_token)[node];
             const arguments = try parser.arena.alloc(ast.Expression, 1);
-            arguments[0] = try parse_expression(parser, node);
+            arguments[0] = .{ .integer = parser.tree.tokenSlice(token) };
             return .{ .name = operation, .arguments = arguments };
         },
     }
@@ -438,6 +456,9 @@ fn parse_concurrently(parser: *Parser, call: std.zig.Ast.full.Call) !ast.Call {
     const tree = &parser.tree;
     const args = try two_arguments(parser, call, "(count, call)");
     const count = try parse_u32(parser, args[0]);
+    if (count < 2) {
+        return parser.fail(tree.firstToken(args[0]), "count must be at least 2", .{});
+    }
     var buffer: [1]std.zig.Ast.Node.Index = undefined;
     const inner = tree.fullCall(&buffer, args[1]) orelse
         return parser.fail_node(args[1], "expected a call");
@@ -463,6 +484,9 @@ fn parse_assertion(
         .assert_equal => {
             const args = try two_arguments(parser, call, "(actual, expected)");
             if (tree.nodes.items(.tag)[args[0]] == .field_access) {
+                if (tree.nodes.items(.tag)[args[1]] == .field_access) {
+                    return .{ .equal_field = try parse_field_equality(parser, args[0], args[1]) };
+                }
                 const value = try parse_expression(parser, args[1]);
                 const comparison =
                     try parse_field_comparison(parser, args[0], args[1], value);
@@ -474,11 +498,13 @@ fn parse_assertion(
             const record_type = try result_record_type(parser, actual, actual_token);
 
             var buffer: [2]std.zig.Ast.Node.Index = undefined;
-            const array_init = tree.fullArrayInit(&buffer, args[1]) orelse
-                return parser.fail_node(args[1], "expected a tuple of records");
-            const expected =
-                try parser.arena.alloc(ast.Record, array_init.ast.elements.len);
-            for (array_init.ast.elements, 0..) |element, index| {
+            const elements =
+                try parse_tuple(parser, args[1], &buffer, "expected a tuple of records");
+            if (elements.len == 0) {
+                return parser.fail(call.ast.lparen, "use assert_empty", .{});
+            }
+            const expected = try parser.arena.alloc(ast.Record, elements.len);
+            for (elements, 0..) |element, index| {
                 var init_buffer: [2]std.zig.Ast.Node.Index = undefined;
                 const struct_init = tree.fullStructInit(&init_buffer, element) orelse
                     return parser.fail_node(element, "expected a record");
@@ -486,9 +512,6 @@ fn parse_assertion(
                     return parser.fail_node(element, "record type is implied, use .{{...}}");
                 }
                 expected[index] = try parse_record(parser, record_type, struct_init);
-            }
-            if (expected.len == 0) {
-                return parser.fail(call.ast.lparen, "use assert_empty", .{});
             }
             return .{ .equal = .{ .actual = actual.reference, .expected = expected } };
         },
@@ -534,7 +557,7 @@ fn parse_record(
     struct_init: std.zig.Ast.full.StructInit,
 ) anyerror!ast.Record {
     const tree = &parser.tree;
-    const fields = try parser.arena.alloc(ast.Field, struct_init.ast.fields.len);
+    const fields = try parser.arena.alloc(ast.FieldValue, struct_init.ast.fields.len);
     for (struct_init.ast.fields, 0..) |field_init, index| {
         const name_token = tree.firstToken(field_init) - 2;
         const field_name = tree.tokenSlice(name_token);
@@ -547,7 +570,7 @@ fn parse_record(
         // NOTE: Quadratic, but bounded by the record's declared field count, at most 13.
         // I may revisit this later.
         for (fields[0..index]) |existing| {
-            if (std.mem.eql(u8, existing.name, field_name)) {
+            if (std.mem.eql(u8, existing.field.name, field_name)) {
                 return parser.fail(name_token, "duplicate field '{s}'", .{field_name});
             }
         }
@@ -558,9 +581,11 @@ fn parse_record(
                 const nested_type = record_field_record_type(record_type, field_name) orelse
                     return parser.fail(name_token, "field '{s}' takes no record", .{field_name});
                 fields[index] = .{
-                    .name = field_name,
+                    .field = .{
+                        .name = field_name,
+                        .type = ast.Field.Type.resolve(record_type, field_name),
+                    },
                     .value = .{ .record = try parse_record(parser, nested_type, nested) },
-                    .type = ast.Field.Type.resolve(record_type, field_name),
                 };
                 continue;
             }
@@ -575,15 +600,18 @@ fn parse_record(
         if (value == .enum_literal and
             !record_field_enum_has(record_type, field_name, value.enum_literal))
         {
-            return parser.fail(name_token, "field '{s}' has no member '.{s}'", .{
-                field_name,
+            return parser.fail(name_token, "no member '.{s}' on {s}.{s}", .{
                 value.enum_literal,
+                @tagName(record_type),
+                field_name,
             });
         }
         fields[index] = .{
-            .name = field_name,
+            .field = .{
+                .name = field_name,
+                .type = ast.Field.Type.resolve(record_type, field_name),
+            },
             .value = value,
-            .type = ast.Field.Type.resolve(record_type, field_name),
         };
     }
     if (fields.len == 0) {
@@ -603,7 +631,7 @@ fn result_record_type(
             if (operation_result(value.call.name)) |record_type| return record_type;
         }
     }
-    return parser.fail(token, "expected a value, not an operation", .{});
+    return parser.fail(token, "expected an operation result", .{});
 }
 
 fn parse_reference(parser: *Parser, node: std.zig.Ast.Node.Index) ![]const u8 {
@@ -648,12 +676,10 @@ fn parse_index(parser: *Parser, node: std.zig.Ast.Node.Index) !ast.Expression {
 
 // Only legal on a binding already narrowed to one record by indexing (`const foo = foos[0];`),
 // never a slice-bound reference directly. This matches how asserts elsewhere only take bindings.
-fn parse_field_comparison(
-    parser: *Parser,
-    node: std.zig.Ast.Node.Index,
-    value_node: std.zig.Ast.Node.Index,
-    value: ast.Expression,
-) !ast.Assertion.FieldComparison {
+fn parse_field_reference(parser: *Parser, node: std.zig.Ast.Node.Index) !struct {
+    reference: ast.Assertion.FieldReference,
+    record_type: ast.Record.Type,
+} {
     const tree = &parser.tree;
     if (tree.nodes.items(.tag)[node] != .field_access) {
         return parser.fail_node(node, "expected a field access");
@@ -673,21 +699,64 @@ fn parse_field_comparison(
             @tagName(record_type),
         });
     }
+    return .{
+        .reference = .{
+            .reference = resolved.reference,
+            .field = .{
+                .name = field_name,
+                .type = ast.Field.Type.resolve(record_type, field_name),
+            },
+        },
+        .record_type = record_type,
+    };
+}
+
+fn parse_field_comparison(
+    parser: *Parser,
+    node: std.zig.Ast.Node.Index,
+    value_node: std.zig.Ast.Node.Index,
+    value: ast.Expression,
+) !ast.Assertion.FieldComparison {
+    const actual = try parse_field_reference(parser, node);
     if (value == .enum_literal and
-        !record_field_enum_has(record_type, field_name, value.enum_literal))
+        !record_field_enum_has(actual.record_type, actual.reference.field.name, value.enum_literal))
     {
-        return parser.fail(tree.firstToken(value_node), "field '{s}' has no member '.{s}'", .{
-            field_name,
-            value.enum_literal,
-        });
+        return parser.fail(
+            parser.tree.firstToken(value_node),
+            "no member '.{s}' on {s}.{s}",
+            .{ value.enum_literal, @tagName(actual.record_type), actual.reference.field.name },
+        );
+    }
+    return .{ .actual = actual.reference, .expected = .{ .expression = value } };
+}
+
+fn parse_field_equality(
+    parser: *Parser,
+    actual_node: std.zig.Ast.Node.Index,
+    expected_node: std.zig.Ast.Node.Index,
+) !ast.Assertion.FieldComparison {
+    const actual = try parse_field_reference(parser, actual_node);
+    const expected = try parse_field_reference(parser, expected_node);
+    if (!field_types_equal(actual.reference.field.type, expected.reference.field.type)) {
+        return parser.fail(
+            parser.tree.firstToken(expected_node),
+            "'{s}' and '{s}' have different types",
+            .{ actual.reference.field.name, expected.reference.field.name },
+        );
     }
     return .{
-        .reference = resolved.reference,
-        .field = .{
-            .name = field_name,
-            .value = value,
-            .type = ast.Field.Type.resolve(record_type, field_name),
-        },
+        .actual = actual.reference,
+        .expected = .{ .field_reference = expected.reference },
+    };
+}
+
+fn field_types_equal(actual: ast.Field.Type, expected: ast.Field.Type) bool {
+    return switch (actual) {
+        .int => |bits| expected == .int and expected.int == bits,
+        .enum_name => |name| expected == .enum_name and
+            std.mem.eql(u8, expected.enum_name, name),
+        .boolean => expected == .boolean,
+        .flags => expected == .flags,
     };
 }
 
