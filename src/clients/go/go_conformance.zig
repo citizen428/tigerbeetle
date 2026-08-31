@@ -19,10 +19,12 @@ pub fn main() !void {
     try stdout.flush();
 }
 
-// `Uint128` is sixteen bytes wide, so a value above the maximum cannot be constructed.
 fn satisfies(requirement: ast.Case.Requirement) bool {
     return switch (requirement) {
+        // `Uint128` is sixteen bytes wide, so a value above the maximum cannot be constructed.
         .requires_unbounded_integers => false,
+        // `Amount` is a `Uint128`, so a fractional value cannot be constructed.
+        .requires_fractional_amounts => false,
     };
 }
 
@@ -105,7 +107,6 @@ fn case_uses_client(case: ast.Case) bool {
 
 // Tracks what is already declared in the generated `t.Run` body, since Go rejects both a
 // redeclared `err` and an unused one.
-// TODO: Can we remoe this?
 const Scope = struct {
     formatter: Formatter,
     error_declared: bool = false,
@@ -365,12 +366,12 @@ fn emit_record_fields(
 ) !void {
     var name_width: usize = 0;
     for (record.fields) |field| {
-        const name = try formatter.to_case(.GOPascalCase, field.name);
+        const name = try formatter.to_case(.GOPascalCase, field.field.name);
         name_width = @max(name_width, name.len);
     }
     for (record.fields) |field| {
-        const name = try formatter.to_case(.GOPascalCase, field.name);
-        const value = try render_field_value(formatter, field);
+        const name = try formatter.to_case(.GOPascalCase, field.field.name);
+        const value = try render_typed_value(formatter, field.field, field.value);
         try formatter.write_indent(writer, .{ .level = indent_level });
         try writer.print("{s}:", .{name});
         try writer.writeByteNTimes(' ', name_width - name.len + 1);
@@ -387,13 +388,13 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: ast.Assert
             try writer.print("assert.Len(t, {s}, {d})\n", .{ actual, equal.expected.len });
             for (equal.expected, 0..) |record, index| {
                 for (record.fields) |field| {
-                    const value = try render_field_value(formatter, field);
+                    const value = try render_typed_value(formatter, field.field, field.value);
                     try formatter.write_indent(writer, .{ .level = formatter.statement_level });
                     try writer.print("assert.Equal(t, {s}, {s}[{d}].{s})\n", .{
                         value,
                         actual,
                         index,
-                        try formatter.to_case(.GOPascalCase, field.name),
+                        try formatter.to_case(.GOPascalCase, field.field.name),
                     });
                 }
             }
@@ -437,16 +438,23 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: ast.Assert
             try writer.writeAll("}\n");
         },
         .equal_field => |comparison| {
-            const actual = try render_field_reference(formatter, comparison);
-            const value = try render_field_value(formatter, comparison.field);
+            const actual = try render_field_access(formatter, comparison.actual);
+            const value = switch (comparison.expected) {
+                .expression => |expression| try render_typed_value(
+                    formatter,
+                    comparison.actual.field,
+                    expression,
+                ),
+                .field_reference => |field| try render_field_access(formatter, field),
+            };
             try formatter.write_indent(writer, .{ .level = formatter.statement_level });
             try writer.print("assert.Equal(t, {s}, {s})\n", .{ value, actual });
         },
         .greater_than => |comparison| {
             // `assert.Greater` type-asserts both sides to `uint64` rather than converting.
-            const bits = comparison.field.type.int;
+            const bits = comparison.actual.field.type.int;
             if (bits > 64) @panic("assert_greater_than has no Go form for a u128 field");
-            const reference = try render_field_reference(formatter, comparison);
+            const reference = try render_field_access(formatter, comparison.actual);
             const actual = if (bits == 64)
                 reference
             else
@@ -454,25 +462,29 @@ fn emit_assertion(writer: std.io.AnyWriter, scope: *Scope, assertion: ast.Assert
             try formatter.write_indent(writer, .{ .level = formatter.statement_level });
             try writer.print("assert.Greater(t, {s}, uint64({s}))\n", .{
                 actual,
-                comparison.field.value.integer,
+                comparison.expected.expression.integer,
             });
         },
         .fail => |call| try emit_call(writer, scope, call, .{ .expect_error = true }),
     }
 }
 
-fn render_field_reference(
+fn render_field_access(
     formatter: Formatter,
-    comparison: ast.Assertion.FieldComparison,
+    reference: ast.Assertion.FieldReference,
 ) ![]const u8 {
     return std.fmt.allocPrint(formatter.arena, "{s}.{s}", .{
-        try formatter.to_case(.GOCamelCase, comparison.reference),
-        try formatter.to_case(.GOPascalCase, comparison.field.name),
+        try formatter.to_case(.GOCamelCase, reference.reference),
+        try formatter.to_case(.GOPascalCase, reference.field.name),
     });
 }
 
-fn render_field_value(formatter: Formatter, field: ast.Field) ![]const u8 {
-    switch (field.value) {
+fn render_typed_value(
+    formatter: Formatter,
+    field: ast.Field,
+    value: ast.Expression,
+) ![]const u8 {
+    switch (value) {
         .enum_literal => |literal| {
             const enum_name = field.type.enum_name;
             return std.fmt.allocPrint(formatter.arena, "{s}{s}", .{
@@ -487,7 +499,7 @@ fn render_field_value(formatter: Formatter, field: ast.Field) ![]const u8 {
             for (flags.fields, 0..) |flag, index| {
                 assert(flag.value == .boolean and flag.value.boolean);
                 if (index > 0) try text.appendSlice(", ");
-                const name = try formatter.to_case(.GOPascalCase, flag.name);
+                const name = try formatter.to_case(.GOPascalCase, flag.field.name);
                 try text.writer().print("{s}: true", .{name});
             }
             try text.writer().print("}}.ToUint{d}()", .{flags_bits(flags.type)});
@@ -506,7 +518,7 @@ fn render_field_value(formatter: Formatter, field: ast.Field) ![]const u8 {
                 index.index,
             });
         },
-        .boolean => |value| return if (value) "true" else "false",
+        .boolean => |boolean| return if (boolean) "true" else "false",
         .call, .generate_ids => unreachable,
     }
 }
