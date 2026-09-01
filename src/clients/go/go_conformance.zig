@@ -40,12 +40,14 @@ fn emit(formatter: Formatter, writer: std.io.AnyWriter, tests: ast.ConformanceTe
         \\import (
         \\
     );
+    try writer.writeAll("\t\"bufio\"\n");
     try writer.writeAll("\t\"bytes\"\n");
     try writer.writeAll("\t\"fmt\"\n");
     try writer.writeAll("\t\"math/rand\"\n");
     try writer.writeAll("\t\"os\"\n");
     try writer.writeAll("\t\"os/exec\"\n");
     try writer.writeAll("\t\"runtime\"\n");
+    try writer.writeAll("\t\"strings\"\n");
     try writer.writeAll("\t\"sync\"\n");
     try writer.writeAll("\t\"testing\"\n");
     try writer.writeAll("\t\"time\"\n");
@@ -54,7 +56,7 @@ fn emit(formatter: Formatter, writer: std.io.AnyWriter, tests: ast.ConformanceTe
     try writer.writeAll(")\n");
     try writer.writeAll("\n");
     try writer.writeAll("func TestConformance(t *testing.T) {\n");
-    try writer.writeAll("\tstartConformanceServer(t)\n");
+    try writer.writeAll("\tport := startConformanceServer(t)\n");
     for (tests.suites) |suite| {
         try writer.writeAll("\n");
         try formatter.write_indent(writer, .{});
@@ -88,7 +90,7 @@ fn emit_case(formatter: Formatter, writer: std.io.AnyWriter, case: ast.Case) !vo
     // Go rejects an unused local, and a case of pure id generation never touches the client.
     if (case_uses_client(case)) {
         try formatter.write_indent(writer, .{ .level = formatter.statement_level });
-        try writer.writeAll("client := newClient(t)\n");
+        try writer.writeAll("client := newClient(t, port)\n");
         try formatter.write_indent(writer, .{ .level = formatter.statement_level });
         try writer.writeAll("defer client.Close()\n");
         try writer.writeAll("\n");
@@ -269,22 +271,27 @@ fn emit_operation(
         .create_accounts, .create_transfers => {
             const record_type: ast.Record.Type =
                 if (call.name == .create_accounts) .Account else .Transfer;
-            try writer.print("[]{s}{{\n", .{@tagName(record_type)});
-            for (call.arguments) |argument| switch (argument) {
-                .record => |record| try emit_record(formatter, writer, record, .{
-                    .indent_level = options.indent_level + 1,
-                    .suffix = ",",
-                }),
-                .reference => |reference| {
-                    try formatter.write_indent(writer, .{ .level = options.indent_level + 1 });
-                    try writer.print("{s},\n", .{
-                        try formatter.to_case(.GOCamelCase, reference),
-                    });
-                },
-                else => unreachable,
-            };
-            try formatter.write_indent(writer, .{ .level = options.indent_level });
-            try writer.writeAll("})\n");
+            if (call.arguments.len == 0) {
+                // gofmt collapses an empty composite literal onto a single line.
+                try writer.print("[]{s}{{}})\n", .{@tagName(record_type)});
+            } else {
+                try writer.print("[]{s}{{\n", .{@tagName(record_type)});
+                for (call.arguments) |argument| switch (argument) {
+                    .record => |record| try emit_record(formatter, writer, record, .{
+                        .indent_level = options.indent_level + 1,
+                        .suffix = ",",
+                    }),
+                    .reference => |reference| {
+                        try formatter.write_indent(writer, .{ .level = options.indent_level + 1 });
+                        try writer.print("{s},\n", .{
+                            try formatter.to_case(.GOCamelCase, reference),
+                        });
+                    },
+                    else => unreachable,
+                };
+                try formatter.write_indent(writer, .{ .level = options.indent_level });
+                try writer.writeAll("})\n");
+            }
         },
         .lookup_accounts, .lookup_transfers => {
             try writer.writeAll("[]Uint128{");
@@ -585,7 +592,7 @@ fn flags_bits(flags_type: ast.Record.Type) u16 {
 // conformance suite builds one per case.
 fn emit_server(writer: std.io.AnyWriter) !void {
     try writer.writeAll("\n" ++
-        "func startConformanceServer(t *testing.T) {\n" ++
+        "func startConformanceServer(t *testing.T) string {\n" ++
         "\tvar tigerbeetlePath string\n" ++
         "\tif runtime.GOOS == \"windows\" {\n" ++
         "\t\ttigerbeetlePath = \"../../../tigerbeetle.exe\"\n" ++
@@ -593,8 +600,6 @@ fn emit_server(writer: std.io.AnyWriter) !void {
         "\t\ttigerbeetlePath = \"../../../tigerbeetle\"\n" ++
         "\t}\n" ++
         "\n" ++
-        "\taddressArg := \"--addresses=\" + TIGERBEETLE_PORT\n" ++
-        "\tcacheSizeArg := \"--cache-grid=256MiB\"\n" ++
         "\treplicaArg := fmt.Sprintf(\"--replica=%d\", TIGERBEETLE_REPLICA_ID)\n" ++
         "\treplicaCountArg := fmt.Sprintf(\"--replica-count=%d\", TIGERBEETLE_REPLICA_COUNT)\n" ++
         "\tclusterArg := fmt.Sprintf(\"--cluster=%d\", TIGERBEETLE_CLUSTER_ID)\n" ++
@@ -615,28 +620,53 @@ fn emit_server(writer: std.io.AnyWriter) !void {
         "\t\tt.Fatal(err)\n" ++
         "\t}\n" ++
         "\n" ++
-        "\ttbStart := exec.Command(tigerbeetlePath, \"start\", addressArg, cacheSizeArg, " ++
-        "fileName)\n" ++
+        "\ttbStart := exec.Command(tigerbeetlePath,\n" ++
+        "\t\t\"start\",\n" ++
+        "\t\t\"--development\",\n" ++
+        "\t\t\"--addresses=0\",\n" ++
+        "\t\tfileName)\n" ++
+        "\n" ++
         "\tif testing.Verbose() {\n" ++
         "\t\ttbStart.Stderr = os.Stderr\n" ++
         "\t}\n" ++
-        "\tif err := tbStart.Start(); err != nil {\n" ++
+        "\n" ++
+        "\t// Stdin is not used,\n" ++
+        "\t// but when running with `--addresses=0`, the replica exits if stdin is closed.\n" ++
+        "\tstdin, err := tbStart.StdinPipe()\n" ++
+        "\tif err != nil {\n" ++
+        "\t\tt.Fatal(err)\n" ++
+        "\t}\n" ++
+        "\t_ = stdin\n" ++
+        "\n" ++
+        "\t// Stdout is used to read the assigned TCP port.\n" ++
+        "\tstdout, err := tbStart.StdoutPipe()\n" ++
+        "\tif err != nil {\n" ++
         "\t\tt.Fatal(err)\n" ++
         "\t}\n" ++
         "\n" ++
+        "\tif err := tbStart.Start(); err != nil {\n" ++
+        "\t\tt.Fatal(err)\n" ++
+        "\t}\n" ++
         "\tt.Cleanup(func() {\n" ++
         "\t\tif err := tbStart.Process.Kill(); err != nil {\n" ++
         "\t\t\tt.Fatal(err)\n" ++
         "\t\t}\n" ++
         "\t})\n" ++
+        "\n" ++
+        "\treader := bufio.NewReader(stdout)\n" ++
+        "\tport, err := reader.ReadString('\\n')\n" ++
+        "\tif err != nil {\n" ++
+        "\t\tt.Fatal(err)\n" ++
+        "\t}\n" ++
+        "\n" ++
+        "\treturn strings.TrimSpace(port)\n" ++
         "}\n");
 }
 
 fn emit_new_client(writer: std.io.AnyWriter) !void {
     try writer.writeAll("\n" ++
-        "func newClient(t *testing.T) Client {\n" ++
-        "\tclient, err := NewClient(ToUint128(TIGERBEETLE_CLUSTER_ID),\n" ++
-        "\t\t[]string{\"127.0.0.1:\" + TIGERBEETLE_PORT})\n" ++
+        "func newClient(t *testing.T, port string) Client {\n" ++
+        "\tclient, err := NewClient(ToUint128(TIGERBEETLE_CLUSTER_ID), []string{port})\n" ++
         "\tif err != nil {\n" ++
         "\t\tt.Fatal(err)\n" ++
         "\t}\n" ++
