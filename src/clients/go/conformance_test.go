@@ -6,12 +6,14 @@
 package tigerbeetle_go
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +22,7 @@ import (
 )
 
 func TestConformance(t *testing.T) {
-	startConformanceServer(t)
+	port := startConformanceServer(t)
 
 	// Suite: generate_ids
 
@@ -52,8 +54,19 @@ func TestConformance(t *testing.T) {
 
 	// Suite: create_accounts
 
+	t.Run("create_accounts_accepts_an_empty_batch", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		results, err := client.CreateAccounts([]Account{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, results, 0)
+	})
+
 	t.Run("create_accounts_creates_an_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		results, err := client.CreateAccounts([]Account{
@@ -71,7 +84,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_accounts_returns_exists_for_a_duplicate_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account := Account{
@@ -96,7 +109,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_accounts_rejects_a_zero_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		results, err := client.CreateAccounts([]Account{
@@ -114,7 +127,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_accounts_rejects_a_zero_ledger", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		results, err := client.CreateAccounts([]Account{
@@ -132,7 +145,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_accounts_rejects_a_zero_code", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		results, err := client.CreateAccounts([]Account{
@@ -150,7 +163,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_accounts_rejects_mutually_exclusive_flags", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		results, err := client.CreateAccounts([]Account{
@@ -168,10 +181,29 @@ func TestConformance(t *testing.T) {
 		assert.Equal(t, AccountFlagsAreMutuallyExclusive, results[0].Status)
 	})
 
+	t.Run("create_accounts_rejects_a_non_zero_timestamp", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		results, err := client.CreateAccounts([]Account{
+			{
+				ID:        ID(),
+				Ledger:    1,
+				Code:      1,
+				Timestamp: 2,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, results, 1)
+		assert.Equal(t, AccountTimestampMustBeZero, results[0].Status)
+	})
+
 	// Suite: lookup_accounts
 
 	t.Run("lookup_accounts_returns_an_existing_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountID := ID()
@@ -196,7 +228,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_accounts_returns_no_accounts_for_a_missing_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accounts, err := client.LookupAccounts([]Uint128{ID()})
@@ -207,7 +239,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_accounts_returns_multiple_existing_accounts_in_one_batch", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -239,7 +271,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_accounts_returns_only_the_existing_account_for_a_partial_match", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		existingID := ID()
@@ -263,7 +295,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_accounts_returns_no_accounts_for_an_empty_batch", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accounts, err := client.LookupAccounts([]Uint128{})
@@ -274,7 +306,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_accounts_round_trips_all_fields", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountID := ID()
@@ -311,8 +343,19 @@ func TestConformance(t *testing.T) {
 
 	// Suite: create_transfers
 
+	t.Run("create_transfers_accepts_an_empty_batch", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		results, err := client.CreateTransfers([]Transfer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, results, 0)
+	})
+
 	t.Run("create_transfers_creates_a_transfer", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -350,7 +393,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_returns_exists_for_a_duplicate_transfer", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -395,7 +438,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_a_zero_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -433,7 +476,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_a_zero_debit_account_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		creditAccountID := ID()
@@ -465,7 +508,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_a_zero_credit_account_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -497,7 +540,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_identical_debit_and_credit_accounts", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountID := ID()
@@ -529,7 +572,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_a_zero_ledger", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -567,7 +610,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("create_transfers_rejects_a_zero_code", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -610,7 +653,7 @@ func TestConformance(t *testing.T) {
 	// Suite: lookup_transfers
 
 	t.Run("lookup_transfers_returns_an_existing_transfer", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transferID := ID()
@@ -656,7 +699,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_transfers_returns_no_transfers_for_a_missing_id", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transfers, err := client.LookupTransfers([]Uint128{ID()})
@@ -667,7 +710,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_transfers_returns_multiple_existing_transfers_in_one_batch", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transfer1ID := ID()
@@ -722,7 +765,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_transfers_returns_only_the_existing_transfer_for_a_partial_match", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		existingID := ID()
@@ -766,7 +809,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_transfers_returns_no_transfers_for_an_empty_batch", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transfers, err := client.LookupTransfers([]Uint128{})
@@ -777,7 +820,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("lookup_transfers_round_trips_all_fields", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transferID := ID()
@@ -836,7 +879,7 @@ func TestConformance(t *testing.T) {
 	// Suite: get_account_transfers
 
 	t.Run("get_account_transfers_returns_debit_and_credit_transfers_for_an_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -901,7 +944,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("get_account_transfers_returns_only_debit_transfers_with_the_debits_flag", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -963,7 +1006,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("get_account_transfers_returns_only_credit_transfers_with_the_credits_flag", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -1025,7 +1068,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("get_account_transfers_returns_no_transfers_for_an_unused_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transfers, err := client.GetAccountTransfers(AccountFilter{
@@ -1039,10 +1082,150 @@ func TestConformance(t *testing.T) {
 		assert.Len(t, transfers, 0)
 	})
 
+	t.Run("get_account_transfers_returns_transfers_in_reverse_order_with_the_reversed_flag", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		account1ID := ID()
+		account2ID := ID()
+		transfer1ID := ID()
+		transfer2ID := ID()
+		_, err := client.CreateAccounts([]Account{
+			{
+				ID:     account1ID,
+				Ledger: 1,
+				Code:   1,
+			},
+			{
+				ID:     account2ID,
+				Ledger: 1,
+				Code:   1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.CreateTransfers([]Transfer{
+			{
+				ID:              transfer1ID,
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(10),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              transfer2ID,
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(20),
+				Ledger:          1,
+				Code:            1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		transfers, err := client.GetAccountTransfers(AccountFilter{
+			AccountID: account1ID,
+			Limit:     10,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true, Reversed: true}.ToUint32(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, transfers, 2)
+		assert.Equal(t, transfer2ID, transfers[0].ID)
+		assert.Equal(t, ToUint128(20), transfers[0].Amount)
+		assert.Equal(t, transfer1ID, transfers[1].ID)
+		assert.Equal(t, ToUint128(10), transfers[1].Amount)
+	})
+
+	t.Run("get_account_transfers_returns_only_the_transfers_within_the_limit", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		account1ID := ID()
+		account2ID := ID()
+		transfer1ID := ID()
+		transfer2ID := ID()
+		_, err := client.CreateAccounts([]Account{
+			{
+				ID:     account1ID,
+				Ledger: 1,
+				Code:   1,
+			},
+			{
+				ID:     account2ID,
+				Ledger: 1,
+				Code:   1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.CreateTransfers([]Transfer{
+			{
+				ID:              transfer1ID,
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(10),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              transfer2ID,
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(20),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              ID(),
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(30),
+				Ledger:          1,
+				Code:            1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		transfers, err := client.GetAccountTransfers(AccountFilter{
+			AccountID: account1ID,
+			Limit:     2,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true}.ToUint32(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, transfers, 2)
+		assert.Equal(t, transfer1ID, transfers[0].ID)
+		assert.Equal(t, ToUint128(10), transfers[0].Amount)
+		assert.Equal(t, transfer2ID, transfers[1].ID)
+		assert.Equal(t, ToUint128(20), transfers[1].Amount)
+	})
+
+	t.Run("get_account_transfers_fails_when_the_limit_is_too_large", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		_, err := client.GetAccountTransfers(AccountFilter{
+			AccountID: ID(),
+			Limit:     10000,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true}.ToUint32(),
+		})
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
 	// Suite: get_account_balances
 
 	t.Run("get_account_balances_returns_a_balance_per_transfer_for_a_history_account", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -1100,7 +1283,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("get_account_balances_pairs_each_balance_with_the_transfer_that_produced_it", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountID := ID()
@@ -1213,7 +1396,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("get_account_balances_returns_no_balances_without_the_history_flag", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -1257,10 +1440,175 @@ func TestConformance(t *testing.T) {
 		assert.Len(t, balances, 0)
 	})
 
+	t.Run("get_account_balances_returns_no_balances_for_an_account_with_no_transfers", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		accountID := ID()
+		_, err := client.CreateAccounts([]Account{
+			{
+				ID:     accountID,
+				Ledger: 1,
+				Code:   1,
+				Flags:  AccountFlags{History: true}.ToUint16(),
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		balances, err := client.GetAccountBalances(AccountFilter{
+			AccountID: accountID,
+			Limit:     10,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true}.ToUint32(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, balances, 0)
+	})
+
+	t.Run("get_account_balances_returns_balances_in_reverse_order_with_the_reversed_flag", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		account1ID := ID()
+		account2ID := ID()
+		_, err := client.CreateAccounts([]Account{
+			{
+				ID:     account1ID,
+				Ledger: 1,
+				Code:   1,
+				Flags:  AccountFlags{History: true}.ToUint16(),
+			},
+			{
+				ID:     account2ID,
+				Ledger: 1,
+				Code:   1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.CreateTransfers([]Transfer{
+			{
+				ID:              ID(),
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(10),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              ID(),
+				DebitAccountID:  account2ID,
+				CreditAccountID: account1ID,
+				Amount:          ToUint128(20),
+				Ledger:          1,
+				Code:            1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		balances, err := client.GetAccountBalances(AccountFilter{
+			AccountID: account1ID,
+			Limit:     10,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true, Reversed: true}.ToUint32(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, balances, 2)
+		assert.Equal(t, ToUint128(10), balances[0].DebitsPosted)
+		assert.Equal(t, ToUint128(20), balances[0].CreditsPosted)
+		assert.Equal(t, ToUint128(10), balances[1].DebitsPosted)
+		assert.Equal(t, ToUint128(0), balances[1].CreditsPosted)
+	})
+
+	t.Run("get_account_balances_returns_only_the_balances_within_the_limit", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		account1ID := ID()
+		account2ID := ID()
+		_, err := client.CreateAccounts([]Account{
+			{
+				ID:     account1ID,
+				Ledger: 1,
+				Code:   1,
+				Flags:  AccountFlags{History: true}.ToUint16(),
+			},
+			{
+				ID:     account2ID,
+				Ledger: 1,
+				Code:   1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.CreateTransfers([]Transfer{
+			{
+				ID:              ID(),
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(10),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              ID(),
+				DebitAccountID:  account2ID,
+				CreditAccountID: account1ID,
+				Amount:          ToUint128(20),
+				Ledger:          1,
+				Code:            1,
+			},
+			{
+				ID:              ID(),
+				DebitAccountID:  account1ID,
+				CreditAccountID: account2ID,
+				Amount:          ToUint128(30),
+				Ledger:          1,
+				Code:            1,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		balances, err := client.GetAccountBalances(AccountFilter{
+			AccountID: account1ID,
+			Limit:     2,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true}.ToUint32(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Len(t, balances, 2)
+		assert.Equal(t, ToUint128(10), balances[0].DebitsPosted)
+		assert.Equal(t, ToUint128(0), balances[0].CreditsPosted)
+		assert.Equal(t, ToUint128(10), balances[1].DebitsPosted)
+		assert.Equal(t, ToUint128(20), balances[1].CreditsPosted)
+	})
+
+	t.Run("get_account_balances_fails_when_the_limit_is_too_large", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		_, err := client.GetAccountBalances(AccountFilter{
+			AccountID: ID(),
+			Limit:     10000,
+			Flags:     AccountFilterFlags{Debits: true, Credits: true}.ToUint32(),
+		})
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
 	// Suite: query_accounts
 
 	t.Run("query_accounts_returns_accounts_matching_user_data", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -1304,7 +1652,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_accounts_returns_accounts_in_reverse_order_with_the_reversed_flag", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		account1ID := ID()
@@ -1341,7 +1689,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_accounts_returns_accounts_matching_ledger_and_code", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountID := ID()
@@ -1385,7 +1733,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_accounts_returns_no_accounts_for_unused_user_data", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accounts, err := client.QueryAccounts(QueryFilter{
@@ -1401,7 +1749,7 @@ func TestConformance(t *testing.T) {
 	// Suite: query_transfers
 
 	t.Run("query_transfers_returns_transfers_matching_user_data", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -1473,7 +1821,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_transfers_returns_transfers_in_reverse_order_with_the_reversed_flag", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -1535,7 +1883,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_transfers_returns_transfers_matching_ledger_and_code", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transferID := ID()
@@ -1617,7 +1965,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_transfers_fails_when_the_limit_is_too_large", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		_, err := client.QueryTransfers(QueryFilter{
@@ -1629,7 +1977,7 @@ func TestConformance(t *testing.T) {
 	})
 
 	t.Run("query_transfers_returns_no_transfers_for_unused_user_data", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		transfers, err := client.QueryTransfers(QueryFilter{
@@ -1645,7 +1993,7 @@ func TestConformance(t *testing.T) {
 	// Suite: two_phase_transfer
 
 	t.Run("two_phase_transfer_creates_posts_voids_and_expires_two_phase_transfers", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		accountAID := ID()
@@ -1915,7 +2263,7 @@ func TestConformance(t *testing.T) {
 	// Suite: uint128_range
 
 	t.Run("uint128_range_accepts_the_maximum_u128", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		uint128Max := BytesToUint128([16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
@@ -1932,10 +2280,16 @@ func TestConformance(t *testing.T) {
 	// Omitted: "rejects a negative u128"
 	// Reason: requires unbounded integers
 
+	// Omitted: "rejects a u128 above the maximum on a struct field"
+	// Reason: requires unbounded integers
+
+	// Omitted: "rejects a negative u128 on a struct field"
+	// Reason: requires unbounded integers
+
 	// Suite: create_transfers_concurrent
 
 	t.Run("create_transfers_concurrent_applies_transfers_submitted_concurrently", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		debitAccountID := ID()
@@ -1992,7 +2346,7 @@ func TestConformance(t *testing.T) {
 	// Suite: close_client
 
 	t.Run("close_client_fails_operations_after_close", func(t *testing.T) {
-		client := newClient(t)
+		client := newClient(t, port)
 		defer client.Close()
 
 		client.Close()
@@ -2003,7 +2357,7 @@ func TestConformance(t *testing.T) {
 	})
 }
 
-func startConformanceServer(t *testing.T) {
+func startConformanceServer(t *testing.T) string {
 	var tigerbeetlePath string
 	if runtime.GOOS == "windows" {
 		tigerbeetlePath = "../../../tigerbeetle.exe"
@@ -2011,8 +2365,6 @@ func startConformanceServer(t *testing.T) {
 		tigerbeetlePath = "../../../tigerbeetle"
 	}
 
-	addressArg := "--addresses=" + TIGERBEETLE_PORT
-	cacheSizeArg := "--cache-grid=256MiB"
 	replicaArg := fmt.Sprintf("--replica=%d", TIGERBEETLE_REPLICA_ID)
 	replicaCountArg := fmt.Sprintf("--replica-count=%d", TIGERBEETLE_REPLICA_COUNT)
 	clusterArg := fmt.Sprintf("--cluster=%d", TIGERBEETLE_CLUSTER_ID)
@@ -2031,24 +2383,50 @@ func startConformanceServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tbStart := exec.Command(tigerbeetlePath, "start", addressArg, cacheSizeArg, fileName)
+	tbStart := exec.Command(tigerbeetlePath,
+		"start",
+		"--development",
+		"--addresses=0",
+		fileName)
+
 	if testing.Verbose() {
 		tbStart.Stderr = os.Stderr
 	}
-	if err := tbStart.Start(); err != nil {
+
+	// Stdin is not used,
+	// but when running with `--addresses=0`, the replica exits if stdin is closed.
+	stdin, err := tbStart.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stdin
+
+	// Stdout is used to read the assigned TCP port.
+	stdout, err := tbStart.StdoutPipe()
+	if err != nil {
 		t.Fatal(err)
 	}
 
+	if err := tbStart.Start(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := tbStart.Process.Kill(); err != nil {
 			t.Fatal(err)
 		}
 	})
+
+	reader := bufio.NewReader(stdout)
+	port, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return strings.TrimSpace(port)
 }
 
-func newClient(t *testing.T) Client {
-	client, err := NewClient(ToUint128(TIGERBEETLE_CLUSTER_ID),
-		[]string{"127.0.0.1:" + TIGERBEETLE_PORT})
+func newClient(t *testing.T, port string) Client {
+	client, err := NewClient(ToUint128(TIGERBEETLE_CLUSTER_ID), []string{port})
 	if err != nil {
 		t.Fatal(err)
 	}
