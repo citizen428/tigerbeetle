@@ -203,7 +203,7 @@ fn parse_binding(parser: *Parser, var_decl: std.zig.Ast.full.VarDecl) !ast.Bindi
     const value = try parse_expression(parser, var_decl.ast.init_node);
     // NOTE: This may need to change, it mirrors current DSL use.
     switch (value) {
-        .generate_id, .generate_ids, .index => {},
+        .generate_id, .generate_ids, .index, .field_access => {},
         // Bindable record types are documented in conformance_test_api.zig.
         .record => |record| switch (record.type) {
             .U128, .Account, .Transfer => {},
@@ -223,7 +223,7 @@ fn parse_binding(parser: *Parser, var_decl: std.zig.Ast.full.VarDecl) !ast.Bindi
         .call => |call| if (operation_result(call.name) == null) {
             return parser.fail(name_token, "'{s}' has no result", .{@tagName(call.name)});
         },
-        .integer, .boolean, .enum_literal, .reference => {
+        .integer, .boolean, .enum_literal, .reference, .increment, .decrement => {
             return parser.fail(
                 tree.firstToken(var_decl.ast.init_node),
                 "invalid binding: {s}",
@@ -264,6 +264,10 @@ fn parse_expression(parser: *Parser, node: std.zig.Ast.Node.Index) anyerror!ast.
             return .{ .reference = name };
         },
         .array_access => return try parse_index(parser, node),
+        .field_access => {
+            const resolved = try parse_field_reference(parser, node);
+            return .{ .field_access = resolved.reference };
+        },
         else => {},
     }
 
@@ -276,11 +280,17 @@ fn parse_expression(parser: *Parser, node: std.zig.Ast.Node.Index) anyerror!ast.
         }
         if (std.mem.eql(u8, name, "generate_ids")) {
             const count_node = try one_argument(parser, call, "(count)");
-            const count = try parse_u32(parser, count_node);
+            const count = try parse_integer(parser, u32, count_node);
             if (count == 0) {
                 return parser.fail(tree.firstToken(count_node), "count must be positive", .{});
             }
             return .{ .generate_ids = count };
+        }
+        if (std.mem.eql(u8, name, "increment")) {
+            return .{ .increment = try parse_arithmetic(parser, call) };
+        }
+        if (std.mem.eql(u8, name, "decrement")) {
+            return .{ .decrement = try parse_arithmetic(parser, call) };
         }
         if (std.meta.stringToEnum(ast.Call.Name, name)) |operation| {
             return .{ .call = try parse_operation(parser, operation, call) };
@@ -347,7 +357,7 @@ fn parse_operation(
         },
         .sleep_ms => {
             const node = try one_argument(parser, call, "(ms)");
-            _ = try parse_u32(parser, node);
+            _ = try parse_integer(parser, u32, node);
             const token = parser.tree.nodes.items(.main_token)[node];
             const arguments = try parser.arena.alloc(ast.Expression, 1);
             arguments[0] = .{ .integer = parser.tree.tokenSlice(token) };
@@ -455,7 +465,7 @@ fn parse_filtered(
 fn parse_concurrently(parser: *Parser, call: std.zig.Ast.full.Call) !ast.Call {
     const tree = &parser.tree;
     const args = try two_arguments(parser, call, "(count, call)");
-    const count = try parse_u32(parser, args[0]);
+    const count = try parse_integer(parser, u32, args[0]);
     if (count < 2) {
         return parser.fail(tree.firstToken(args[0]), "count must be at least 2", .{});
     }
@@ -666,7 +676,7 @@ fn parse_index(parser: *Parser, node: std.zig.Ast.Node.Index) !ast.Expression {
         else => null,
     } orelse return parser.fail_node(base_node, "expected an operation result");
 
-    const index = try parse_u32(parser, data.rhs);
+    const index = try parse_integer(parser, u32, data.rhs);
     return .{ .index = .{
         .reference = resolved.reference,
         .index = index,
@@ -674,10 +684,26 @@ fn parse_index(parser: *Parser, node: std.zig.Ast.Node.Index) !ast.Expression {
     } };
 }
 
+fn parse_arithmetic(parser: *Parser, call: std.zig.Ast.full.Call) !ast.Expression.Arithmetic {
+    const args = try two_arguments(parser, call, "(reference, by)");
+    const resolved = try resolve_reference(parser, args[0]);
+    if (resolved.value != .field_access) {
+        return parser.fail_node(args[0], "expected a binding to a field");
+    }
+    const field_type = resolved.value.field_access.field.type;
+    if (field_type != .int or field_type.int > 64) {
+        return parser.fail_node(args[0], "expected an integer field of at most 64 bits");
+    }
+    return .{
+        .reference = resolved.reference,
+        .by = try parse_integer(parser, u64, args[1]),
+    };
+}
+
 // Only legal on a binding already narrowed to one record by indexing (`const foo = foos[0];`),
 // never a slice-bound reference directly. This matches how asserts elsewhere only take bindings.
 fn parse_field_reference(parser: *Parser, node: std.zig.Ast.Node.Index) !struct {
-    reference: ast.Assertion.FieldReference,
+    reference: ast.FieldReference,
     record_type: ast.Record.Type,
 } {
     const tree = &parser.tree;
@@ -793,13 +819,13 @@ fn two_arguments(
     return call.ast.params[0..2].*;
 }
 
-fn parse_u32(parser: *Parser, node: std.zig.Ast.Node.Index) !u32 {
+fn parse_integer(parser: *Parser, comptime Int: type, node: std.zig.Ast.Node.Index) !Int {
     const tree = &parser.tree;
     if (tree.nodes.items(.tag)[node] != .number_literal) {
         return parser.fail_node(node, "expected an integer");
     }
     const token = tree.nodes.items(.main_token)[node];
-    return stdx.parse_int(u32, tree.tokenSlice(token), .{}) catch
+    return stdx.parse_int(Int, tree.tokenSlice(token), .{}) catch
         parser.fail(token, "invalid integer", .{});
 }
 

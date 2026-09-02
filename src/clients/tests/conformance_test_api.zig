@@ -39,6 +39,20 @@ pub fn generate_ids(count: u32) []const u128 {
     @panic(ct_compile_error);
 }
 
+/// Increments an u64 by the value of `by`.
+pub fn increment(reference: u64, by: u64) u64 {
+    _ = reference;
+    _ = by;
+    @panic(ct_compile_error);
+}
+
+/// Decrements an u64 by the value of `by`.
+pub fn decrement(reference: u64, by: u64) u64 {
+    _ = reference;
+    _ = by;
+    @panic(ct_compile_error);
+}
+
 pub fn create_accounts(accounts: anytype) []const CreateAccountResult {
     _ = accounts;
     @panic(ct_compile_error);
