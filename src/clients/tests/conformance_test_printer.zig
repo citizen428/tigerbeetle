@@ -56,6 +56,17 @@ pub const Printer = struct {
         return printer.fba.allocator();
     }
 
+    // The strings each case builds are temporary: the generators mark the current arena
+    // emit a case, then release the memory back.
+    pub fn mark(printer: *const Printer) usize {
+        return printer.fba.end_index;
+    }
+
+    pub fn release(printer: *Printer, marked: usize) void {
+        assert(marked <= printer.fba.end_index);
+        printer.fba.end_index = marked;
+    }
+
     pub fn indent(printer: *Printer) void {
         printer.level += 1;
     }

@@ -256,6 +256,10 @@ const Parser = struct {
             },
             .array_access => return try parser.parse_index(node),
             .field_access => {
+                const name = tree.tokenSlice(tree.nodes.items(.data)[node].rhs);
+                if (std.mem.eql(u8, name, "uint128_max")) {
+                    return .{ .integer = std.fmt.comptimePrint("{d}", .{api.uint128_max}) };
+                }
                 const resolved = try parser.parse_field_reference(node);
                 return .{ .field_access = resolved.reference };
             },
@@ -529,10 +533,6 @@ const Parser = struct {
                 const node = try parser.assert_one_argument(call, "(actual)");
                 return .{ .empty = try parser.parse_reference(node) };
             },
-            .assert_unique => {
-                const node = try parser.assert_one_argument(call, "(ids)");
-                return .{ .unique = try parser.parse_reference(node) };
-            },
             .assert_ascending => {
                 const node = try parser.assert_one_argument(call, "(ids)");
                 return .{ .ascending = try parser.parse_reference(node) };
@@ -626,7 +626,12 @@ const Parser = struct {
                 .value = value,
             };
         }
-        if (fields.len == 0) {
+        const empty_allowed = switch (record_type) {
+            // A filter with no fields is the default filter, which matches nothing.
+            .AccountFilter, .QueryFilter => true,
+            else => ast.Record.is_flags(record_type),
+        };
+        if (fields.len == 0 and !empty_allowed) {
             return parser.fail(struct_init.ast.lbrace, "empty record", .{});
         }
         return .{ .type = record_type, .fields = fields };

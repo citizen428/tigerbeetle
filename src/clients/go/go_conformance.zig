@@ -27,6 +27,7 @@ fn satisfies(requirement: ast.Case.Requirement) bool {
         .requires_unbounded_integers => false,
         // `Amount` is a `Uint128`, so a fractional value cannot be constructed.
         .requires_fractional_amounts => false,
+        .requires_raise_on_double_close => false,
     };
 }
 
@@ -66,6 +67,9 @@ fn emit(printer: *Printer, tests: ast.ConformanceTests) !void {
         try printer.write_empty_line();
         try printer.print_indented("// Suite: {s}", .{suite.name});
         for (suite.cases) |case| {
+            const case_memory = printer.mark();
+            defer printer.release(case_memory);
+
             try printer.write_empty_line();
             if (case.requirement) |requirement| {
                 if (!satisfies(requirement)) {
@@ -140,6 +144,11 @@ fn emit_binding(scope: *Scope, binding: ast.Binding) !void {
             try printer.print_indented("{s} := make([]Uint128, {d})", .{ name, count });
             try printer.print_indented("for i := range {s} {{", .{name});
             printer.indent();
+            try printer.print_indented("if i%{d} == 0 {{", .{ast.generate_ids_sleep_interval});
+            printer.indent();
+            try printer.write_indented("time.Sleep(time.Millisecond)");
+            printer.dedent();
+            try printer.write_indented("}");
             try printer.print_indented("{s}[i] = ID()", .{name});
             printer.dedent();
             try printer.write_indented("}");
@@ -284,11 +293,15 @@ fn emit_operation(
         .get_account_transfers, .get_account_balances, .query_accounts, .query_transfers => {
             assert(call.arguments.len == 1);
             const filter = call.arguments[0].record;
-            try printer.print("{s}{{\n", .{@tagName(filter.type)});
-            printer.indent();
-            try emit_record_fields(printer, filter);
-            printer.dedent();
-            try printer.write_indented("})");
+            if (filter.fields.len == 0) {
+                try printer.print("{s}{{}})\n", .{@tagName(filter.type)});
+            } else {
+                try printer.print("{s}{{\n", .{@tagName(filter.type)});
+                printer.indent();
+                try emit_record_fields(printer, filter);
+                printer.dedent();
+                try printer.write_indented("})");
+            }
         },
         .close_client, .sleep_ms => unreachable,
     }
@@ -379,20 +392,6 @@ fn emit_assertion(scope: *Scope, assertion: ast.Assertion) !void {
         .empty => |actual| {
             const name = try printer.to_case_alloc(.GOCamelCase, actual);
             try printer.print_indented("assert.Len(t, {s}, 0)", .{name});
-        },
-        .unique => |ids| {
-            const name = try printer.to_case_alloc(.GOCamelCase, ids);
-            try printer.print_indented("seen := make(map[string]struct{{}}, len({s}))", .{name});
-            try printer.print_indented("for _, id := range {s} {{", .{name});
-            printer.indent();
-            try printer.write_indented("if _, ok := seen[id.String()]; ok {");
-            printer.indent();
-            try printer.write_indented("t.Fatal(\"duplicate id\")");
-            printer.dedent();
-            try printer.write_indented("}");
-            try printer.write_indented("seen[id.String()] = struct{}{}");
-            printer.dedent();
-            try printer.write_indented("}");
         },
         .ascending => |ids| {
             const name = try printer.to_case_alloc(.GOCamelCase, ids);

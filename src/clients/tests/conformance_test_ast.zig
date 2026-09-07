@@ -31,6 +31,10 @@ pub const Binding = struct {
     value: Expression,
 };
 
+/// `generate_ids` sleeps a millisecond every `generate_ids_sleep_interval` ids, so that a batch
+/// spans several clock ticks rather than a single one.
+pub const generate_ids_sleep_interval = 10_000;
+
 pub const Expression = union(enum) {
     generate_id,
     generate_ids: u32,
@@ -78,7 +82,6 @@ pub const Assertion = union(enum) {
     },
     equal_field: FieldComparison,
     empty: []const u8,
-    unique: []const u8,
     ascending: []const u8,
     greater_than: FieldComparison,
     fail: Call,

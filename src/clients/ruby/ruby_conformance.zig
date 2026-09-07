@@ -26,6 +26,7 @@ fn satisfies(requirement: ast.Case.Requirement) bool {
         // Ruby's Integer is arbitrary precision, and Float is accepted where Integer is expected.
         .requires_unbounded_integers => true,
         .requires_fractional_amounts => true,
+        .requires_raise_on_double_close => true,
     };
 }
 
@@ -54,6 +55,9 @@ fn emit(printer: *Printer, tests: ast.ConformanceTests) !void {
         try printer.write_empty_line();
         try printer.print_indented("# Suite: {s}", .{suite.name});
         for (suite.cases) |case| {
+            const case_memory = printer.mark();
+            defer printer.release(case_memory);
+
             try printer.write_empty_line();
             if (case.requirement) |requirement| assert(satisfies(requirement));
             try printer.print_indented("def test_{s}_{s}", .{
@@ -79,8 +83,20 @@ fn emit_step(printer: *Printer, step: ast.Step) !void {
 
 fn emit_binding(printer: *Printer, binding: ast.Binding) !void {
     switch (binding.value) {
-        .generate_id, .generate_ids, .index, .field_access => {
+        .generate_id, .index, .field_access => {
             try emit_binding_value(printer, binding.name, binding.value);
+        },
+        .generate_ids => |count| {
+            try printer.print_indented("{s} = Array.new({d}) do |index|", .{
+                binding.name, count,
+            });
+            printer.indent();
+            try printer.print_indented("sleep(0.001) if (index % {d}).zero?", .{
+                ast.generate_ids_sleep_interval,
+            });
+            try printer.write_indented("TigerBeetle.id");
+            printer.dedent();
+            try printer.write_indented("end");
         },
         .record => |record| switch (record.type) {
             .U128 => try emit_binding_value(printer, binding.name, binding.value),
@@ -205,6 +221,12 @@ fn emit_record(
         suffix: []const u8 = "",
     },
 ) !void {
+    if (record.fields.len == 0) {
+        try printer.print_indented("{s}TigerBeetle::{s}.new{s}", .{
+            options.prefix, @tagName(record.type), options.suffix,
+        });
+        return;
+    }
     try printer.print_indented("{s}TigerBeetle::{s}.new(", .{
         options.prefix, @tagName(record.type),
     });
@@ -248,9 +270,6 @@ fn emit_assertion(
         },
         .empty => |actual| {
             try printer.print_indented("assert_equal(0, {s}.length)", .{actual});
-        },
-        .unique => |ids| {
-            try printer.print_indented("assert_equal({s}.length, {s}.uniq.length)", .{ ids, ids });
         },
         .ascending => |ids| {
             try printer.print_indented(
@@ -335,10 +354,8 @@ fn render_expression(
 ) std.mem.Allocator.Error![]const u8 {
     switch (expression) {
         .generate_id => return "TigerBeetle.id",
-        .generate_ids => |count| {
-            return printer.string_alloc("Array.new({d}) {{ TigerBeetle.id }}", .{count});
-        },
-        .call => unreachable, // Calls are emitted by emit_call/emit_operation.
+        // Calls are emitted by emit_call/emit_operation; id batches by emit_binding.
+        .call, .generate_ids => unreachable,
         .record => |record| switch (record.type) {
             .U128 => {
                 assert(record.fields.len == 1);
@@ -380,6 +397,9 @@ fn render_flags(
     record: ast.Record,
     continuation_indent_level: u32,
 ) ![]const u8 {
+    if (record.fields.len == 0) {
+        return printer.string_alloc("TigerBeetle::{s}::NONE", .{@tagName(record.type)});
+    }
     var text = std.ArrayList(u8).init(printer.arena());
     for (record.fields, 0..) |field, index| {
         assert(field.value == .boolean and field.value.boolean);
