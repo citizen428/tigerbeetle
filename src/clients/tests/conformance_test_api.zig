@@ -25,6 +25,7 @@ pub const Transfer = tb.Transfer;
 pub const TransferFlags = tb.TransferFlags;
 
 pub const U128 = struct { value: u128 };
+pub const uint128_max = 340282366920938463463374607431768211455;
 
 const ct_compile_error = "conformance test suites are parsed, not compiled";
 

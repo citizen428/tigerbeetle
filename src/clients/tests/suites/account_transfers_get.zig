@@ -118,6 +118,91 @@ test "returns only credit transfers with the credits flag" {
     ct.assert_equal(transfers, .{.{ .id = credit_transfer_id, .amount = 20 }});
 }
 
+test "filters transfers by code" {
+    const account_1_id = ct.generate_id();
+    const account_2_id = ct.generate_id();
+    const transfer_1_id = ct.generate_id();
+    const transfer_2_id = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = account_1_id, .ledger = 1, .code = 1 },
+        .{ .id = account_2_id, .ledger = 1, .code = 1 },
+    });
+    ct.create_transfers(.{
+        .{
+            .id = transfer_1_id,
+            .debit_account_id = account_1_id,
+            .credit_account_id = account_2_id,
+            .amount = 10,
+            .ledger = 1,
+            .code = 1,
+        },
+        .{
+            .id = transfer_2_id,
+            .debit_account_id = account_1_id,
+            .credit_account_id = account_2_id,
+            .amount = 20,
+            .ledger = 1,
+            .code = 2,
+        },
+    });
+
+    const transfers = ct.get_account_transfers(.{
+        .account_id = account_1_id,
+        .code = 2,
+        .limit = 10,
+        .flags = .{ .debits = true, .credits = true },
+    });
+
+    ct.assert_equal(transfers, .{.{ .id = transfer_2_id, .amount = 20, .code = 2 }});
+}
+
+test "filters transfers by user data" {
+    const account_1_id = ct.generate_id();
+    const account_2_id = ct.generate_id();
+    const transfer_1_id = ct.generate_id();
+    const transfer_2_id = ct.generate_id();
+    const user_data_128 = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = account_1_id, .ledger = 1, .code = 1 },
+        .{ .id = account_2_id, .ledger = 1, .code = 1 },
+    });
+    ct.create_transfers(.{
+        .{
+            .id = transfer_1_id,
+            .debit_account_id = account_1_id,
+            .credit_account_id = account_2_id,
+            .amount = 10,
+            .ledger = 1,
+            .code = 1,
+            .user_data_128 = user_data_128,
+            .user_data_64 = 64,
+            .user_data_32 = 32,
+        },
+        .{
+            .id = transfer_2_id,
+            .debit_account_id = account_1_id,
+            .credit_account_id = account_2_id,
+            .amount = 20,
+            .ledger = 1,
+            .code = 1,
+            .user_data_128 = ct.generate_id(),
+            .user_data_64 = 65,
+            .user_data_32 = 33,
+        },
+    });
+
+    const transfers = ct.get_account_transfers(.{
+        .account_id = account_1_id,
+        .user_data_128 = user_data_128,
+        .user_data_64 = 64,
+        .user_data_32 = 32,
+        .limit = 10,
+        .flags = .{ .debits = true, .credits = true },
+    });
+
+    ct.assert_equal(transfers, .{.{ .id = transfer_1_id, .amount = 10 }});
+}
+
 test "returns no transfers for an unused account" {
     const transfers = ct.get_account_transfers(.{
         .account_id = ct.generate_id(),

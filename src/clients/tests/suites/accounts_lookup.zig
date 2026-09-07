@@ -31,6 +31,36 @@ test "returns multiple existing accounts in one batch" {
     });
 }
 
+test "returns accounts in the order they were requested" {
+    const account_1_id = ct.generate_id();
+    const account_2_id = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = account_1_id, .ledger = 1, .code = 1 },
+        .{ .id = account_2_id, .ledger = 2, .code = 2 },
+    });
+
+    const accounts = ct.lookup_accounts(.{ account_2_id, account_1_id });
+
+    ct.assert_equal(accounts, .{
+        .{ .id = account_2_id, .ledger = 2 },
+        .{ .id = account_1_id, .ledger = 1 },
+    });
+}
+
+test "returns an account once per requested id" {
+    const account_id = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = account_id, .ledger = 1, .code = 1 },
+    });
+
+    const accounts = ct.lookup_accounts(.{ account_id, account_id });
+
+    ct.assert_equal(accounts, .{
+        .{ .id = account_id, .ledger = 1 },
+        .{ .id = account_id, .ledger = 1 },
+    });
+}
+
 test "returns only the existing account for a partial match" {
     const existing_id = ct.generate_id();
     const missing_id = ct.generate_id();

@@ -7,6 +7,7 @@ test "generates unique ids" {
 }
 
 test "generates monotonically increasing ids" {
+    // TODO: Should this number be higher? (mk)
     const ids = ct.generate_ids(100);
 
     ct.assert_ascending(ids);

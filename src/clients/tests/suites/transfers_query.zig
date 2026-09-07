@@ -144,6 +144,123 @@ test "returns transfers matching ledger and code" {
     ct.assert_equal(transfers, .{.{ .id = transfer_id, .ledger = 7, .code = 42 }});
 }
 
+test "returns no more transfers than the limit" {
+    const debit_account_id = ct.generate_id();
+    const credit_account_id = ct.generate_id();
+    const transfer_1_id = ct.generate_id();
+    const transfer_2_id = ct.generate_id();
+    const user_data = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = debit_account_id, .ledger = 1, .code = 1 },
+        .{ .id = credit_account_id, .ledger = 1, .code = 1 },
+    });
+    ct.create_transfers(.{
+        .{
+            .id = transfer_1_id,
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 10,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+        .{
+            .id = transfer_2_id,
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 20,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+        .{
+            .id = ct.generate_id(),
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 30,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+    });
+
+    const transfers = ct.query_transfers(.{ .user_data_128 = user_data, .limit = 2 });
+
+    ct.assert_equal(transfers, .{
+        .{ .id = transfer_1_id, .amount = 10 },
+        .{ .id = transfer_2_id, .amount = 20 },
+    });
+}
+
+test "pages through transfers with a timestamp cursor" {
+    const debit_account_id = ct.generate_id();
+    const credit_account_id = ct.generate_id();
+    const transfer_1_id = ct.generate_id();
+    const transfer_2_id = ct.generate_id();
+    const transfer_3_id = ct.generate_id();
+    const user_data = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = debit_account_id, .ledger = 1, .code = 1 },
+        .{ .id = credit_account_id, .ledger = 1, .code = 1 },
+    });
+    ct.create_transfers(.{
+        .{
+            .id = transfer_1_id,
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 10,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+        .{
+            .id = transfer_2_id,
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 20,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+        .{
+            .id = transfer_3_id,
+            .debit_account_id = debit_account_id,
+            .credit_account_id = credit_account_id,
+            .amount = 30,
+            .user_data_128 = user_data,
+            .ledger = 1,
+            .code = 1,
+        },
+    });
+
+    const page_1 = ct.query_transfers(.{ .user_data_128 = user_data, .limit = 2 });
+
+    ct.assert_equal(page_1, .{
+        .{ .id = transfer_1_id, .amount = 10 },
+        .{ .id = transfer_2_id, .amount = 20 },
+    });
+
+    const page_1_last = page_1[1];
+    const cursor_1 = page_1_last.timestamp;
+    const page_2 = ct.query_transfers(.{
+        .user_data_128 = user_data,
+        .timestamp_min = ct.increment(cursor_1, 1),
+        .limit = 2,
+    });
+
+    ct.assert_equal(page_2, .{.{ .id = transfer_3_id, .amount = 30 }});
+
+    const page_2_last = page_2[0];
+    const cursor_2 = page_2_last.timestamp;
+    const page_3 = ct.query_transfers(.{
+        .user_data_128 = user_data,
+        .timestamp_min = ct.increment(cursor_2, 1),
+        .limit = 2,
+    });
+
+    ct.assert_empty(page_3);
+}
+
 test "fails when the limit is too large" {
     ct.assert_fail(ct.query_transfers(.{ .limit = 10000 }));
 }

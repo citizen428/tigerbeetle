@@ -114,19 +114,7 @@ fn emit(printer: *Printer, tests: ast.ConformanceTests) !void {
                 try printer.to_case_alloc(.PascalCase, suite.name),
                 try printer.to_case_alloc(.PascalCase, case.description),
             });
-            // A signature that overflows the line width breaks before `throws`.
-            if (printer.level * printer.indent_width + name.len +
-                " throws Exception {".len > line_width_max)
-            {
-                try printer.print_indented("{s}", .{name});
-                printer.indent();
-                printer.indent();
-                try printer.write_indented("throws Exception {");
-                printer.dedent();
-                printer.dedent();
-            } else {
-                try printer.print_indented("{s} throws Exception {{", .{name});
-            }
+            try emit_signature(printer, name);
             printer.indent();
             try emit_case(printer, case);
             printer.dedent();
@@ -636,9 +624,10 @@ fn emit_argument(
                 name, call.arguments.len,
             });
             for (call.arguments) |argument| {
-                try printer.print_indented("{s}.add({s});", .{
-                    name, try render_id(printer, argument),
+                const suffix = try printer.string_alloc(".add({s});", .{
+                    try render_id(printer, argument),
                 });
+                try emit_add(printer, name, suffix);
             }
             return name;
         },
@@ -696,17 +685,50 @@ fn emit_filter_field(
 
 // An over-long statement breaks onto a continuation line indented two levels further.
 fn emit_assignment(printer: *Printer, name: []const u8, value: []const u8) !void {
-    const width = printer.level * printer.indent_width + "final var ".len + name.len +
-        " = ".len + value.len + ";".len;
-    try printer.write_indent();
-    if (width <= line_width_max) {
-        try printer.print("final var {s} = {s};\n", .{ name, value });
+    const statement = try printer.string_alloc("final var {s} = {s};", .{ name, value });
+    if (fits(printer, statement)) {
+        try printer.write_indented(statement);
         return;
     }
-    try printer.print("final var {s} =\n", .{name});
+    const head = try printer.string_alloc("final var {s} =", .{name});
+    const tail = try printer.string_alloc("{s};", .{value});
+    try emit_wrapped(printer, head, tail);
+}
+
+fn emit_signature(printer: *Printer, name: []const u8) !void {
+    const statement = try printer.string_alloc("{s} throws Exception {{", .{name});
+    if (fits(printer, statement)) {
+        try printer.write_indented(statement);
+        return;
+    }
+    try emit_wrapped(printer, name, "throws Exception {");
+}
+
+fn emit_add(printer: *Printer, target: []const u8, suffix: []const u8) !void {
+    const statement = try printer.string_alloc("{s}{s}", .{ target, suffix });
+    if (fits(printer, statement)) {
+        try printer.write_indented(statement);
+        return;
+    }
+    try emit_wrapped(printer, target, suffix);
+}
+
+// A statement that overflows the line width breaks between `head` and `tail`, which the
+// formatter indents by eight spaces.
+fn fits(printer: *Printer, text: []const u8) bool {
+    return printer.level * printer.indent_width + text.len <= line_width_max;
+}
+
+// A continuation line sits two levels deeper, which is the eight spaces the formatter uses.
+fn fits_continuation(printer: *Printer, text: []const u8) bool {
+    return (printer.level + 2) * printer.indent_width + text.len <= line_width_max;
+}
+
+fn emit_wrapped(printer: *Printer, head: []const u8, tail: []const u8) !void {
+    try printer.write_indented(head);
     printer.indent();
     printer.indent();
-    try printer.print_indented("{s};", .{value});
+    try printer.write_indented(tail);
     printer.dedent();
     printer.dedent();
 }
@@ -717,20 +739,35 @@ fn emit_setter(
     property: []const u8,
     value: []const u8,
 ) !void {
-    const width = printer.level * printer.indent_width + target.len + ".set".len + property.len +
-        "(".len + value.len + ");".len;
-    try printer.write_indent();
-    if (width <= line_width_max) {
-        try printer.print("{s}.set{s}({s});\n", .{ target, property, value });
+    const statement = try printer.string_alloc("{s}.set{s}({s});", .{ target, property, value });
+    if (fits(printer, statement)) {
+        try printer.write_indented(statement);
         return;
     }
 
-    // A flags word is the only setter argument that overflows; the break goes before each `|`.
+    // Breaking before the method is preferred; the argument follows on its own line when that
+    // still overflows.
+    const call = try printer.string_alloc(".set{s}({s});", .{ property, value });
+    if (fits_continuation(printer, call)) {
+        try emit_wrapped(printer, target, call);
+        return;
+    }
+
+    const argument = try printer.string_alloc("{s});", .{value});
+    if (fits_continuation(printer, argument)) {
+        const head = try printer.string_alloc("{s}.set{s}(", .{ target, property });
+        try emit_wrapped(printer, head, argument);
+        return;
+    }
+
+    // Only a flags word is long enough to need breaking before each `|`.
     var count: usize = 1;
     var counter = std.mem.splitSequence(u8, value, " | ");
     _ = counter.first();
     while (counter.next()) |_| count += 1;
+    assert(count > 1);
 
+    try printer.write_indent();
     var operands = std.mem.splitSequence(u8, value, " | ");
     try printer.print("{s}.set{s}({s}\n", .{ target, property, operands.first() });
     printer.indent();
@@ -825,12 +862,21 @@ fn emit_field_equal(
     field: ast.FieldValue,
     actual: []const u8,
 ) !void {
-    try printer.print_indented("{s}({s}, {s}.get{s}());", .{
+    const head = try printer.string_alloc("{s}({s},", .{
         assert_function(field.field),
         try render_typed_value(printer, field.field, field.value),
+    });
+    const tail = try printer.string_alloc("{s}.get{s}());", .{
         actual,
         try printer.to_case_alloc(.PascalCase, field.field.name),
     });
+
+    const statement = try printer.string_alloc("{s} {s}", .{ head, tail });
+    if (fits(printer, statement)) {
+        try printer.write_indented(statement);
+        return;
+    }
+    try emit_wrapped(printer, head, tail);
 }
 
 fn assert_function(field: ast.Field) []const u8 {

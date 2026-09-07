@@ -251,6 +251,10 @@ const Parser = struct {
             },
             .array_access => return try parser.parse_index(node),
             .field_access => {
+                const name = tree.tokenSlice(tree.nodes.items(.data)[node].rhs);
+                if (std.mem.eql(u8, name, "uint128_max")) {
+                    return .{ .integer = std.fmt.comptimePrint("{d}", .{api.uint128_max}) };
+                }
                 const resolved = try parser.parse_field_reference(node);
                 return .{ .field_access = resolved.reference };
             },

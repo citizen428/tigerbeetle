@@ -100,6 +100,31 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateAccountsReturnsAResultPerAccountInABatch() throws Exception {
+        final var resultsBatch = new AccountBatch(3);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.asBytes(0L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(3, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.Created, results.getStatus());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.IdMustNotBeZero, results.getStatus());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.Created, results.getStatus());
+    }
+
+    @Test
     public void testCreateAccountsReturnsExistsForADuplicateAccount() throws Exception {
         final var accountId = UInt128.id();
 
@@ -124,6 +149,30 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateAccountsReturnsExistsWithADifferentLedger() throws Exception {
+        final var accountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(1);
+            accountsBatch.add();
+            accountsBatch.setId(accountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(accountId);
+        resultsBatch.setLedger(2);
+        resultsBatch.setCode(1);
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.ExistsWithDifferentLedger, results.getStatus());
+    }
+
+    @Test
     public void testCreateAccountsRejectsAZeroId() throws Exception {
         final var resultsBatch = new AccountBatch(1);
         resultsBatch.add();
@@ -134,6 +183,20 @@ public class ConformanceTest {
         assertEquals(1, results.getLength());
         assertTrue(results.next());
         assertEquals(CreateAccountStatus.IdMustNotBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateAccountsRejectsAnIdOfTheMaximumU128() throws Exception {
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch
+                .setId(UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455")));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.IdMustNotBeIntMax, results.getStatus());
     }
 
     @Test
@@ -160,6 +223,62 @@ public class ConformanceTest {
         assertEquals(1, results.getLength());
         assertTrue(results.next());
         assertEquals(CreateAccountStatus.CodeMustNotBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateAccountsRejectsANonZeroDebitsPending() throws Exception {
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setDebitsPending(BigInteger.valueOf(1L));
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.DebitsPendingMustBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateAccountsRejectsANonZeroDebitsPosted() throws Exception {
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setDebitsPosted(BigInteger.valueOf(1L));
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.DebitsPostedMustBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateAccountsRejectsANonZeroCreditsPending() throws Exception {
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setCreditsPending(BigInteger.valueOf(1L));
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.CreditsPendingMustBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateAccountsRejectsANonZeroCreditsPosted() throws Exception {
+        final var resultsBatch = new AccountBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setCreditsPosted(BigInteger.valueOf(1L));
+        final var results = client.createAccounts(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateAccountStatus.CreditsPostedMustBeZero, results.getStatus());
     }
 
     @Test
@@ -253,6 +372,63 @@ public class ConformanceTest {
         assertTrue(accounts.next());
         assertArrayEquals(account2Id, accounts.getId());
         assertEquals(2, accounts.getLedger());
+    }
+
+    @Test
+    public void testLookupAccountsReturnsAccountsInTheOrderTheyWereRequested() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setLedger(2);
+            accountsBatch.setCode(2);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var accountsBatch = new IdBatch(2);
+        accountsBatch.add(account2Id);
+        accountsBatch.add(account1Id);
+        final var accounts = client.lookupAccounts(accountsBatch);
+        assertEquals(2, accounts.getLength());
+        assertTrue(accounts.next());
+        assertArrayEquals(account2Id, accounts.getId());
+        assertEquals(2, accounts.getLedger());
+        assertTrue(accounts.next());
+        assertArrayEquals(account1Id, accounts.getId());
+        assertEquals(1, accounts.getLedger());
+    }
+
+    @Test
+    public void testLookupAccountsReturnsAnAccountOncePerRequestedId() throws Exception {
+        final var accountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(1);
+            accountsBatch.add();
+            accountsBatch.setId(accountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var accountsBatch = new IdBatch(2);
+        accountsBatch.add(accountId);
+        accountsBatch.add(accountId);
+        final var accounts = client.lookupAccounts(accountsBatch);
+        assertEquals(2, accounts.getLength());
+        assertTrue(accounts.next());
+        assertArrayEquals(accountId, accounts.getId());
+        assertEquals(1, accounts.getLedger());
+        assertTrue(accounts.next());
+        assertArrayEquals(accountId, accounts.getId());
+        assertEquals(1, accounts.getLedger());
     }
 
     @Test
@@ -362,6 +538,56 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateTransfersReturnsAResultPerTransferInABatch() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(3);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.asBytes(0L));
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(3, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.Created, results.getStatus());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.IdMustNotBeZero, results.getStatus());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.Created, results.getStatus());
+    }
+
+    @Test
     public void testCreateTransfersReturnsExistsForADuplicateTransfer() throws Exception {
         final var debitAccountId = UInt128.id();
         final var creditAccountId = UInt128.id();
@@ -407,6 +633,51 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateTransfersReturnsExistsWithADifferentAmount() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+        final var transferId = UInt128.id();
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(transferId);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(100L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(transferId);
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(200L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.ExistsWithDifferentAmount, results.getStatus());
+    }
+
+    @Test
     public void testCreateTransfersRejectsAZeroId() throws Exception {
         final var debitAccountId = UInt128.id();
         final var creditAccountId = UInt128.id();
@@ -439,6 +710,39 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateTransfersRejectsAnIdOfTheMaximumU128() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch
+                .setId(UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455")));
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.IdMustNotBeIntMax, results.getStatus());
+    }
+
+    @Test
     public void testCreateTransfersRejectsAZeroDebitAccountId() throws Exception {
         final var creditAccountId = UInt128.id();
 
@@ -463,6 +767,39 @@ public class ConformanceTest {
         assertEquals(1, results.getLength());
         assertTrue(results.next());
         assertEquals(CreateTransferStatus.DebitAccountIdMustNotBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsADebitAccountIdOfTheMaximumU128() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(
+                UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455")));
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.DebitAccountIdMustNotBeIntMax, results.getStatus());
     }
 
     @Test
@@ -493,6 +830,39 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testCreateTransfersRejectsACreditAccountIdOfTheMaximumU128() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(
+                UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455")));
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.CreditAccountIdMustNotBeIntMax, results.getStatus());
+    }
+
+    @Test
     public void testCreateTransfersRejectsIdenticalDebitAndCreditAccounts() throws Exception {
         final var accountId = UInt128.id();
 
@@ -517,6 +887,126 @@ public class ConformanceTest {
         assertEquals(1, results.getLength());
         assertTrue(results.next());
         assertEquals(CreateTransferStatus.AccountsMustBeDifferent, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsAnUnknownDebitAccount() throws Exception {
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(UInt128.id());
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.DebitAccountNotFound, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsAnUnknownCreditAccount() throws Exception {
+        final var debitAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(1);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(UInt128.id());
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.CreditAccountNotFound, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsAccountsOnDifferentLedgers() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(2);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.AccountsMustHaveTheSameLedger, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsATransferOnADifferentLedgerToItsAccounts()
+            throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(2);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.TransferMustHaveTheSameLedgerAsAccounts,
+                results.getStatus());
     }
 
     @Test
@@ -581,6 +1071,242 @@ public class ConformanceTest {
         assertEquals(1, results.getLength());
         assertTrue(results.next());
         assertEquals(CreateTransferStatus.CodeMustNotBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsMutuallyExclusiveFlags() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setFlags(
+                TransferFlags.POST_PENDING_TRANSFER | TransferFlags.VOID_PENDING_TRANSFER);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.FlagsAreMutuallyExclusive, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsANonZeroTimestamp() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        resultsBatch.setTimestamp(2L);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.TimestampMustBeZero, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsATransferExceedingCredits() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.DEBITS_MUST_NOT_EXCEED_CREDITS);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.ExceedsCredits, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsATransferExceedingDebits() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.CREDITS_MUST_NOT_EXCEED_DEBITS);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.ExceedsDebits, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersAcceptsATransferOnceCreditsAllowIt() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.DEBITS_MUST_NOT_EXCEED_CREDITS);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(UInt128.id());
+            transfersBatch.setDebitAccountId(creditAccountId);
+            transfersBatch.setCreditAccountId(debitAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(100L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(UInt128.id());
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.Created, results.getStatus());
+    }
+
+    @Test
+    public void testCreateTransfersRejectsAnIdReusedAfterATransientFailure() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.DEBITS_MUST_NOT_EXCEED_CREDITS);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+        final var transferId = UInt128.id();
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(transferId);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(UInt128.id());
+            transfersBatch.setDebitAccountId(creditAccountId);
+            transfersBatch.setCreditAccountId(debitAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(100L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var resultsBatch = new TransferBatch(1);
+        resultsBatch.add();
+        resultsBatch.setId(transferId);
+        resultsBatch.setDebitAccountId(debitAccountId);
+        resultsBatch.setCreditAccountId(creditAccountId);
+        resultsBatch.setAmount(BigInteger.valueOf(10L));
+        resultsBatch.setLedger(1);
+        resultsBatch.setCode(1);
+        final var results = client.createTransfers(resultsBatch);
+        assertEquals(1, results.getLength());
+        assertTrue(results.next());
+        assertEquals(CreateTransferStatus.IdAlreadyFailed, results.getStatus());
     }
 
     // Omitted: "rejects a fractional amount"
@@ -688,6 +1414,140 @@ public class ConformanceTest {
         assertTrue(transfers.next());
         assertArrayEquals(transfer2Id, transfers.getId());
         assertEquals(BigInteger.valueOf(20L), transfers.getAmount());
+    }
+
+    @Test
+    public void testLookupTransfersReturnsTransfersInTheOrderTheyWereRequested() throws Exception {
+        final var transfer1Id = UInt128.id();
+        final var transfer2Id = UInt128.id();
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(2);
+            transfersBatch.add();
+            transfersBatch.setId(transfer1Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(transfer2Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(20L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersBatch = new IdBatch(2);
+        transfersBatch.add(transfer2Id);
+        transfersBatch.add(transfer1Id);
+        final var transfers = client.lookupTransfers(transfersBatch);
+        assertEquals(2, transfers.getLength());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer2Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(20L), transfers.getAmount());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer1Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(10L), transfers.getAmount());
+    }
+
+    @Test
+    public void testLookupTransfersReturnsATransferOncePerRequestedId() throws Exception {
+        final var transferId = UInt128.id();
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(transferId);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersBatch = new IdBatch(2);
+        transfersBatch.add(transferId);
+        transfersBatch.add(transferId);
+        final var transfers = client.lookupTransfers(transfersBatch);
+        assertEquals(2, transfers.getLength());
+        assertTrue(transfers.next());
+        assertArrayEquals(transferId, transfers.getId());
+        assertEquals(BigInteger.valueOf(10L), transfers.getAmount());
+        assertTrue(transfers.next());
+        assertArrayEquals(transferId, transfers.getId());
+        assertEquals(BigInteger.valueOf(10L), transfers.getAmount());
+    }
+
+    @Test
+    public void testLookupTransfersReturnsNoTransferForAnIdThatFailed() throws Exception {
+        final var transferId = UInt128.id();
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.DEBITS_MUST_NOT_EXCEED_CREDITS);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(transferId);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersBatch = new IdBatch(1);
+        transfersBatch.add(transferId);
+        final var transfers = client.lookupTransfers(transfersBatch);
+        assertEquals(0, transfers.getLength());
     }
 
     @Test
@@ -963,6 +1823,120 @@ public class ConformanceTest {
         assertTrue(transfers.next());
         assertArrayEquals(creditTransferId, transfers.getId());
         assertEquals(BigInteger.valueOf(20L), transfers.getAmount());
+    }
+
+    @Test
+    public void testGetAccountTransfersFiltersTransfersByCode() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+        final var transfer1Id = UInt128.id();
+        final var transfer2Id = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(2);
+            transfersBatch.add();
+            transfersBatch.setId(transfer1Id);
+            transfersBatch.setDebitAccountId(account1Id);
+            transfersBatch.setCreditAccountId(account2Id);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(transfer2Id);
+            transfersBatch.setDebitAccountId(account1Id);
+            transfersBatch.setCreditAccountId(account2Id);
+            transfersBatch.setAmount(BigInteger.valueOf(20L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(2);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersFilter = new AccountFilter();
+        transfersFilter.setAccountId(account1Id);
+        transfersFilter.setCode(2);
+        transfersFilter.setLimit(10);
+        transfersFilter.setDebits(true);
+        transfersFilter.setCredits(true);
+        final var transfers = client.getAccountTransfers(transfersFilter);
+        assertEquals(1, transfers.getLength());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer2Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(20L), transfers.getAmount());
+        assertEquals(2, transfers.getCode());
+    }
+
+    @Test
+    public void testGetAccountTransfersFiltersTransfersByUserData() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+        final var transfer1Id = UInt128.id();
+        final var transfer2Id = UInt128.id();
+        final var userData128 = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(2);
+            transfersBatch.add();
+            transfersBatch.setId(transfer1Id);
+            transfersBatch.setDebitAccountId(account1Id);
+            transfersBatch.setCreditAccountId(account2Id);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.setUserData128(userData128);
+            transfersBatch.setUserData64(64L);
+            transfersBatch.setUserData32(32);
+            transfersBatch.add();
+            transfersBatch.setId(transfer2Id);
+            transfersBatch.setDebitAccountId(account1Id);
+            transfersBatch.setCreditAccountId(account2Id);
+            transfersBatch.setAmount(BigInteger.valueOf(20L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.setUserData128(UInt128.id());
+            transfersBatch.setUserData64(65L);
+            transfersBatch.setUserData32(33);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersFilter = new AccountFilter();
+        transfersFilter.setAccountId(account1Id);
+        transfersFilter.setUserData128(userData128);
+        transfersFilter.setUserData64(64L);
+        transfersFilter.setUserData32(32);
+        transfersFilter.setLimit(10);
+        transfersFilter.setDebits(true);
+        transfersFilter.setCredits(true);
+        final var transfers = client.getAccountTransfers(transfersFilter);
+        assertEquals(1, transfers.getLength());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer1Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(10L), transfers.getAmount());
     }
 
     @Test
@@ -1403,6 +2377,52 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testGetAccountBalancesReturnsPendingBalancesForAHistoryAccount() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.setFlags(AccountFlags.HISTORY);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(1);
+            transfersBatch.add();
+            transfersBatch.setId(UInt128.id());
+            transfersBatch.setDebitAccountId(account1Id);
+            transfersBatch.setCreditAccountId(account2Id);
+            transfersBatch.setAmount(BigInteger.valueOf(30L));
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.setFlags(TransferFlags.PENDING);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var balancesFilter = new AccountFilter();
+        balancesFilter.setAccountId(account1Id);
+        balancesFilter.setLimit(10);
+        balancesFilter.setDebits(true);
+        balancesFilter.setCredits(true);
+        final var balances = client.getAccountBalances(balancesFilter);
+        assertEquals(1, balances.getLength());
+        assertTrue(balances.next());
+        assertEquals(BigInteger.valueOf(30L), balances.getDebitsPending());
+        assertEquals(BigInteger.valueOf(0L), balances.getDebitsPosted());
+        assertEquals(BigInteger.valueOf(0L), balances.getCreditsPending());
+        assertEquals(BigInteger.valueOf(0L), balances.getCreditsPosted());
+    }
+
+    @Test
     public void testGetAccountBalancesReturnsNoBalancesWithoutTheHistoryFlag() throws Exception {
         final var account1Id = UInt128.id();
         final var account2Id = UInt128.id();
@@ -1826,12 +2846,120 @@ public class ConformanceTest {
     }
 
     @Test
+    public void testQueryAccountsReturnsNoMoreAccountsThanTheLimit() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+        final var userData = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(3);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(UInt128.id());
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var accountsFilter = new QueryFilter();
+        accountsFilter.setUserData128(userData);
+        accountsFilter.setLimit(2);
+        final var accounts = client.queryAccounts(accountsFilter);
+        assertEquals(2, accounts.getLength());
+        assertTrue(accounts.next());
+        assertArrayEquals(account1Id, accounts.getId());
+        assertTrue(accounts.next());
+        assertArrayEquals(account2Id, accounts.getId());
+    }
+
+    @Test
+    public void testQueryAccountsPagesThroughAccountsWithATimestampCursor() throws Exception {
+        final var account1Id = UInt128.id();
+        final var account2Id = UInt128.id();
+        final var account3Id = UInt128.id();
+        final var userData = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(3);
+            accountsBatch.add();
+            accountsBatch.setId(account1Id);
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account2Id);
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(account3Id);
+            accountsBatch.setUserData128(userData);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        final var page1Filter = new QueryFilter();
+        page1Filter.setUserData128(userData);
+        page1Filter.setLimit(2);
+        final var page1 = client.queryAccounts(page1Filter);
+        assertEquals(2, page1.getLength());
+        assertTrue(page1.next());
+        assertArrayEquals(account1Id, page1.getId());
+        assertTrue(page1.next());
+        assertArrayEquals(account2Id, page1.getId());
+        page1.beforeFirst();
+        assertTrue(page1.next());
+        assertTrue(page1.next());
+        final var cursor1 = page1.getTimestamp();
+
+        final var page2Filter = new QueryFilter();
+        page2Filter.setUserData128(userData);
+        page2Filter.setTimestampMin(cursor1 + 1L);
+        page2Filter.setLimit(2);
+        final var page2 = client.queryAccounts(page2Filter);
+        assertEquals(1, page2.getLength());
+        assertTrue(page2.next());
+        assertArrayEquals(account3Id, page2.getId());
+        page2.beforeFirst();
+        assertTrue(page2.next());
+        final var cursor2 = page2.getTimestamp();
+
+        final var page3Filter = new QueryFilter();
+        page3Filter.setUserData128(userData);
+        page3Filter.setTimestampMin(cursor2 + 1L);
+        page3Filter.setLimit(2);
+        final var page3 = client.queryAccounts(page3Filter);
+        assertEquals(0, page3.getLength());
+    }
+
+    @Test
     public void testQueryAccountsReturnsNoAccountsForUnusedUserData() throws Exception {
         final var accountsFilter = new QueryFilter();
         accountsFilter.setUserData128(UInt128.id());
         accountsFilter.setLimit(10);
         final var accounts = client.queryAccounts(accountsFilter);
         assertEquals(0, accounts.getLength());
+    }
+
+    @Test
+    public void testQueryAccountsFailsWhenTheLimitIsTooLarge() throws Exception {
+        {
+            final var filter = new QueryFilter();
+            filter.setUserData128(UInt128.id());
+            filter.setLimit(10000);
+            assertThrows(Exception.class, () -> client.queryAccounts(filter));
+        }
     }
 
     // Suite: query_transfers
@@ -2028,6 +3156,157 @@ public class ConformanceTest {
         assertArrayEquals(transferId, transfers.getId());
         assertEquals(7, transfers.getLedger());
         assertEquals(42, transfers.getCode());
+    }
+
+    @Test
+    public void testQueryTransfersReturnsNoMoreTransfersThanTheLimit() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+        final var transfer1Id = UInt128.id();
+        final var transfer2Id = UInt128.id();
+        final var userData = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(3);
+            transfersBatch.add();
+            transfersBatch.setId(transfer1Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(transfer2Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(20L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(UInt128.id());
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(30L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var transfersFilter = new QueryFilter();
+        transfersFilter.setUserData128(userData);
+        transfersFilter.setLimit(2);
+        final var transfers = client.queryTransfers(transfersFilter);
+        assertEquals(2, transfers.getLength());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer1Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(10L), transfers.getAmount());
+        assertTrue(transfers.next());
+        assertArrayEquals(transfer2Id, transfers.getId());
+        assertEquals(BigInteger.valueOf(20L), transfers.getAmount());
+    }
+
+    @Test
+    public void testQueryTransfersPagesThroughTransfersWithATimestampCursor() throws Exception {
+        final var debitAccountId = UInt128.id();
+        final var creditAccountId = UInt128.id();
+        final var transfer1Id = UInt128.id();
+        final var transfer2Id = UInt128.id();
+        final var transfer3Id = UInt128.id();
+        final var userData = UInt128.id();
+
+        {
+            final var accountsBatch = new AccountBatch(2);
+            accountsBatch.add();
+            accountsBatch.setId(debitAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            accountsBatch.add();
+            accountsBatch.setId(creditAccountId);
+            accountsBatch.setLedger(1);
+            accountsBatch.setCode(1);
+            client.createAccounts(accountsBatch);
+        }
+
+        {
+            final var transfersBatch = new TransferBatch(3);
+            transfersBatch.add();
+            transfersBatch.setId(transfer1Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(10L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(transfer2Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(20L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            transfersBatch.add();
+            transfersBatch.setId(transfer3Id);
+            transfersBatch.setDebitAccountId(debitAccountId);
+            transfersBatch.setCreditAccountId(creditAccountId);
+            transfersBatch.setAmount(BigInteger.valueOf(30L));
+            transfersBatch.setUserData128(userData);
+            transfersBatch.setLedger(1);
+            transfersBatch.setCode(1);
+            client.createTransfers(transfersBatch);
+        }
+
+        final var page1Filter = new QueryFilter();
+        page1Filter.setUserData128(userData);
+        page1Filter.setLimit(2);
+        final var page1 = client.queryTransfers(page1Filter);
+        assertEquals(2, page1.getLength());
+        assertTrue(page1.next());
+        assertArrayEquals(transfer1Id, page1.getId());
+        assertEquals(BigInteger.valueOf(10L), page1.getAmount());
+        assertTrue(page1.next());
+        assertArrayEquals(transfer2Id, page1.getId());
+        assertEquals(BigInteger.valueOf(20L), page1.getAmount());
+        page1.beforeFirst();
+        assertTrue(page1.next());
+        assertTrue(page1.next());
+        final var cursor1 = page1.getTimestamp();
+
+        final var page2Filter = new QueryFilter();
+        page2Filter.setUserData128(userData);
+        page2Filter.setTimestampMin(cursor1 + 1L);
+        page2Filter.setLimit(2);
+        final var page2 = client.queryTransfers(page2Filter);
+        assertEquals(1, page2.getLength());
+        assertTrue(page2.next());
+        assertArrayEquals(transfer3Id, page2.getId());
+        assertEquals(BigInteger.valueOf(30L), page2.getAmount());
+        page2.beforeFirst();
+        assertTrue(page2.next());
+        final var cursor2 = page2.getTimestamp();
+
+        final var page3Filter = new QueryFilter();
+        page3Filter.setUserData128(userData);
+        page3Filter.setTimestampMin(cursor2 + 1L);
+        page3Filter.setLimit(2);
+        final var page3 = client.queryTransfers(page3Filter);
+        assertEquals(0, page3.getLength());
     }
 
     @Test
@@ -2315,11 +3594,9 @@ public class ConformanceTest {
 
     @Test
     public void testUint128RangeAcceptsTheMaximumU128() throws Exception {
-        final var uint128Max =
-                UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455"));
-
         final var accountsBatch = new IdBatch(1);
-        accountsBatch.add(uint128Max);
+        accountsBatch
+                .add(UInt128.asBytes(new BigInteger("340282366920938463463374607431768211455")));
         final var accounts = client.lookupAccounts(accountsBatch);
         assertEquals(0, accounts.getLength());
     }

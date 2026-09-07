@@ -125,6 +125,41 @@ test "pairs each balance with the transfer that produced it" {
     ct.assert_equal(balance_4.timestamp, transfer_4.timestamp);
 }
 
+test "returns pending balances for a history account" {
+    const account_1_id = ct.generate_id();
+    const account_2_id = ct.generate_id();
+    ct.create_accounts(.{
+        .{ .id = account_1_id, .ledger = 1, .code = 1, .flags = .{ .history = true } },
+        .{ .id = account_2_id, .ledger = 1, .code = 1 },
+    });
+    ct.create_transfers(.{
+        .{
+            .id = ct.generate_id(),
+            .debit_account_id = account_1_id,
+            .credit_account_id = account_2_id,
+            .amount = 30,
+            .ledger = 1,
+            .code = 1,
+            .flags = .{ .pending = true },
+        },
+    });
+
+    const balances = ct.get_account_balances(.{
+        .account_id = account_1_id,
+        .limit = 10,
+        .flags = .{ .debits = true, .credits = true },
+    });
+
+    ct.assert_equal(balances, .{
+        .{
+            .debits_pending = 30,
+            .debits_posted = 0,
+            .credits_pending = 0,
+            .credits_posted = 0,
+        },
+    });
+}
+
 test "returns no balances without the history flag" {
     const account_1_id = ct.generate_id();
     const account_2_id = ct.generate_id();
