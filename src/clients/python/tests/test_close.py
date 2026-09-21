@@ -52,6 +52,18 @@ def test_close_sync():
     assert len(client._inflight_packets) == 0
     assert client._client_key not in tb.ClientSync._clients
 
+def test_double_close_sync():
+    # Bind a socket to a free port to get a socket that's definitely not TigerBeetle.
+    not_tigerbeetle = socket.socket()
+    not_tigerbeetle.bind(('127.0.0.1', 0))
+    not_tigerbeetle_port = not_tigerbeetle.getsockname()[1]
+
+    client = tb.ClientSync(cluster_id=1234, replica_addresses=f"127.0.0.1:{not_tigerbeetle_port}")
+    client.close()
+
+    with pytest.raises(tb.ClientClosedError):
+        client.close()
+
 def test_close_async():
     # Saves having an extra dependency like pytest-asyncio!
     asyncio.run(_test_close_async())
@@ -85,3 +97,19 @@ async def _test_close_async():
     # Closing the client should have resulted in the request being terminated.
     assert len(client._inflight_packets) == 0
     assert client._client_key not in tb.ClientSync._clients
+
+def test_double_close_async():
+    # Saves having an extra dependency like pytest-asyncio!
+    asyncio.run(_test_double_close_async())
+
+async def _test_double_close_async():
+    # Bind a socket to a free port to get a socket that's definitely not TigerBeetle.
+    not_tigerbeetle = socket.socket()
+    not_tigerbeetle.bind(('127.0.0.1', 0))
+    not_tigerbeetle_port = not_tigerbeetle.getsockname()[1]
+
+    client = tb.ClientAsync(cluster_id=1234, replica_addresses=f"127.0.0.1:{not_tigerbeetle_port}")
+    await client.close()
+
+    with pytest.raises(tb.ClientClosedError):
+        await client.close()

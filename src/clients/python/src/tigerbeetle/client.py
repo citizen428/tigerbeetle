@@ -134,6 +134,7 @@ class Client:
         self._client = bindings.CClient()
 
         self._inflight_packets: dict[int, InflightPacket] = {}
+        self._closed = False
 
         # ctypes needs a reference to keep this alive through the FFI call. Having it as a temporary
         # within the call _does not_ work.
@@ -258,6 +259,10 @@ class ClientSync(Client, bindings.StateMachineMixin):
         return inflight_packet.response
 
     def close(self) -> None:
+        if self._closed:
+            raise ClientClosedError()
+        self._closed = True
+
         tb_assert(self._client is not None)
         bindings.tb_client_deinit(ctypes.byref(self._client))
 
@@ -316,6 +321,10 @@ class ClientAsync(Client, bindings.AsyncStateMachineMixin):
         return inflight_packet.response
 
     async def close(self) -> None:
+        if self._closed:
+            raise ClientClosedError()
+        self._closed = True
+
         tb_assert(self._client is not None)
         bindings.tb_client_deinit(ctypes.byref(self._client))
 
