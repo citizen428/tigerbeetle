@@ -320,11 +320,16 @@ fn emit_assertion(
                 comparison.actual.reference, comparison.actual.field.name, value,
             });
         },
-        // The DSL carries no exception type, matching Ruby's `assert_raises(StandardError)`.
-        .fail => |call| {
-            try printer.write_indented("with pytest.raises(Exception):");
+        .fail => |failure| {
+            if (failure.client_error) |client_error| {
+                try printer.print_indented("with pytest.raises(tb.{s}):", .{
+                    python_error_name(client_error),
+                });
+            } else {
+                try printer.write_indented("with pytest.raises(Exception):");
+            }
             printer.indent();
-            try emit_operation(printer, call, .{});
+            try emit_operation(printer, failure.call, .{});
             printer.dedent();
         },
     }
@@ -407,6 +412,13 @@ fn render_expression(
         .increment => |arithmetic| return render_arithmetic(printer, arithmetic, "+"),
         .decrement => |arithmetic| return render_arithmetic(printer, arithmetic, "-"),
     }
+}
+
+fn python_error_name(client_error: ast.ClientError) []const u8 {
+    return switch (client_error) {
+        .too_much_data => "TooMuchDataError",
+        .client_closed => "ClientClosedError",
+    };
 }
 
 fn render_flags(printer: *Printer, record: ast.Record) ![]const u8 {

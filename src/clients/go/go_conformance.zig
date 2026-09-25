@@ -46,6 +46,7 @@ fn emit(printer: *Printer, tests: ast.ConformanceTests) !void {
     printer.indent();
     try printer.write_indented("\"bufio\"");
     try printer.write_indented("\"bytes\"");
+    try printer.write_indented("\"errors\"");
     try printer.write_indented("\"fmt\"");
     try printer.write_indented("\"math/rand\"");
     try printer.write_indented("\"os\"");
@@ -194,6 +195,7 @@ fn emit_call(
     options: struct {
         binding: ?[]const u8 = null,
         expect_error: bool = false,
+        client_error: ?ast.ClientError = null,
     },
 ) !void {
     const printer = scope.printer;
@@ -221,6 +223,7 @@ fn emit_call(
     try emit_operation(scope, call, .{
         .binding = options.binding,
         .error_action = if (options.expect_error) .expected else .fatal,
+        .client_error = options.client_error,
     });
 }
 
@@ -232,6 +235,7 @@ fn emit_operation(
     options: struct {
         binding: ?[]const u8 = null,
         error_action: ErrorAction,
+        client_error: ?ast.ClientError = null,
     },
 ) !void {
     const printer = scope.printer;
@@ -315,7 +319,11 @@ fn emit_operation(
             printer.dedent();
             try printer.write_indented("}");
         },
-        .expected => {
+        .expected => if (options.client_error) |client_error| {
+            try printer.print_indented("assert.True(t, errors.Is(err, {s}))", .{
+                go_error_name(client_error),
+            });
+        } else {
             try printer.write_indented("if err == nil {");
             printer.indent();
             try printer.write_indented("t.Fatal(\"expected an error\")");
@@ -323,6 +331,13 @@ fn emit_operation(
             try printer.write_indented("}");
         },
     }
+}
+
+fn go_error_name(client_error: ast.ClientError) []const u8 {
+    return switch (client_error) {
+        .too_much_data => "ErrTooMuchData",
+        .client_closed => "ErrClientClosed",
+    };
 }
 
 fn emit_error_check(printer: *Printer) !void {
@@ -433,7 +448,10 @@ fn emit_assertion(scope: *Scope, assertion: ast.Assertion) !void {
                 comparison.expected.expression.integer,
             });
         },
-        .fail => |call| try emit_call(scope, call, .{ .expect_error = true }),
+        .fail => |failure| try emit_call(scope, failure.call, .{
+            .expect_error = true,
+            .client_error = failure.client_error,
+        }),
     }
 }
 

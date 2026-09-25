@@ -2643,7 +2643,7 @@ def test_get_account_transfers_returns_no_transfers_without_the_debits_or_credit
     assert transfers == []
 
 def test_get_account_transfers_fails_when_the_limit_is_too_large(client):
-    with pytest.raises(Exception):
+    with pytest.raises(tb.TooMuchDataError):
         client.get_account_transfers(
             tb.AccountFilter(
                 account_id=tb.id(),
@@ -4365,7 +4365,7 @@ def test_get_account_balances_returns_no_balances_without_the_debits_or_credits_
     assert balances == []
 
 def test_get_account_balances_fails_when_the_limit_is_too_large(client):
-    with pytest.raises(Exception):
+    with pytest.raises(tb.TooMuchDataError):
         client.get_account_balances(
             tb.AccountFilter(
                 account_id=tb.id(),
@@ -4943,7 +4943,7 @@ def test_query_accounts_returns_no_accounts_for_an_inverted_timestamp_range_at_u
     assert accounts == []
 
 def test_query_accounts_fails_when_the_limit_is_too_large(client):
-    with pytest.raises(Exception):
+    with pytest.raises(tb.TooMuchDataError):
         client.query_accounts(
             tb.QueryFilter(
                 user_data_128=tb.id(),
@@ -5774,7 +5774,7 @@ def test_query_transfers_returns_no_transfers_for_an_inverted_timestamp_range_at
     assert transfers == []
 
 def test_query_transfers_fails_when_the_limit_is_too_large(client):
-    with pytest.raises(Exception):
+    with pytest.raises(tb.TooMuchDataError):
         client.query_transfers(
             tb.QueryFilter(
                 user_data_128=0,

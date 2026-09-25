@@ -14,12 +14,6 @@ class TestClientLifecycle < Minitest::Test
     assert_predicate(client, :closed?)
   end
 
-  def test_double_close_raises
-    client = TigerBeetle::Client.new(cluster_id: 0, replica_addresses: @tb_address)
-    client.close
-    assert_raises(TigerBeetle::ClientClosedError) { client.close }
-  end
-
   def test_native_submit_after_close_raises
     read_io, write_io = IO.pipe
     # NativeClient is hidden from users, but we still want some tests around it.

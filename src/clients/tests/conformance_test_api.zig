@@ -27,6 +27,10 @@ pub const TransferFlags = tb.TransferFlags;
 pub const U128 = struct { value: u128 };
 pub const uint128_max = 340282366920938463463374607431768211455;
 
+/// Client errors an assertion can pin. Each one maps to a client's own type or
+/// code in the emitters.
+pub const ClientError = enum { too_much_data, client_closed };
+
 const ct_compile_error = "conformance test suites are parsed, not compiled";
 
 /// A runtime-generated TigerBeetle id.
@@ -156,5 +160,13 @@ pub fn assert_greater_than(actual: anytype, value: anytype) void {
 /// The wrapped call must fail with a client error.
 pub fn assert_fail(call: anytype) void {
     _ = call;
+    @panic(ct_compile_error);
+}
+
+/// The wrapped call must fail with this client error. Zig has neither default
+/// arguments nor overloading, hence the second name.
+pub fn assert_fail_with(call: anytype, client_error: ClientError) void {
+    _ = call;
+    _ = client_error;
     @panic(ct_compile_error);
 }
