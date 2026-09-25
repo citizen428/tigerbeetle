@@ -6,6 +6,8 @@ pub const ConformanceTests = struct {
     suites: []const Suite,
 };
 
+pub const ClientError = api.ClientError;
+
 pub const Suite = struct {
     name: []const u8,
     cases: []const Case,
@@ -84,7 +86,10 @@ pub const Assertion = union(enum) {
     empty: []const u8,
     ascending: []const u8,
     greater_than: FieldComparison,
-    fail: Call,
+    fail: struct {
+        call: Call,
+        client_error: ?ClientError,
+    },
 
     pub const FieldComparison = struct {
         actual: FieldReference,
@@ -195,5 +200,7 @@ fn is_requirement(comptime name: [:0]const u8) bool {
 }
 
 fn is_record(comptime name: [:0]const u8) bool {
+    // ClientErrors are only used internally, they are not TB record types.
+    if (std.mem.eql(u8, name, "ClientError")) return false;
     return @TypeOf(@field(api, name)) == type;
 }

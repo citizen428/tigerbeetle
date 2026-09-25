@@ -2594,7 +2594,7 @@ public class ConformanceTest {
             filter.setLimit(10000);
             filter.setDebits(true);
             filter.setCredits(true);
-            assertThrows(Exception.class, () -> client.getAccountTransfers(filter));
+            assertThrows(TooMuchDataException.class, () -> client.getAccountTransfers(filter));
         }
     }
 
@@ -4102,7 +4102,7 @@ public class ConformanceTest {
             filter.setLimit(10000);
             filter.setDebits(true);
             filter.setCredits(true);
-            assertThrows(Exception.class, () -> client.getAccountBalances(filter));
+            assertThrows(TooMuchDataException.class, () -> client.getAccountBalances(filter));
         }
     }
 
@@ -4573,7 +4573,7 @@ public class ConformanceTest {
             final var filter = new QueryFilter();
             filter.setUserData128(UInt128.id());
             filter.setLimit(10000);
-            assertThrows(Exception.class, () -> client.queryAccounts(filter));
+            assertThrows(TooMuchDataException.class, () -> client.queryAccounts(filter));
         }
     }
 
@@ -5274,7 +5274,7 @@ public class ConformanceTest {
         {
             final var filter = new QueryFilter();
             filter.setLimit(10000);
-            assertThrows(Exception.class, () -> client.queryTransfers(filter));
+            assertThrows(TooMuchDataException.class, () -> client.queryTransfers(filter));
         }
     }
 
@@ -5977,7 +5977,7 @@ public class ConformanceTest {
         {
             final var idsBatch = new IdBatch(1);
             idsBatch.add(UInt128.id());
-            assertThrows(Exception.class, () -> client.lookupAccounts(idsBatch));
+            assertThrows(ClientClosedException.class, () -> client.lookupAccounts(idsBatch));
         }
     }
 
