@@ -21,14 +21,11 @@ pub fn main() !void {
     try stdout.flush();
 }
 
-// TODO: This produces failing tests until the following PR gets merged:
-// https://github.com/tigerbeetle/tigerbeetle/pull/3917
 fn satisfies(requirement: ast.Case.Requirement) bool {
     return switch (requirement) {
         // Python's int is arbitrary precision, and float is accepted where int is expected.
         .requires_unbounded_integers => true,
         .requires_fractional_amounts => true,
-        .requires_raise_on_double_close => false,
     };
 }
 

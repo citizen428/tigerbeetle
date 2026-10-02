@@ -37,7 +37,6 @@ fn satisfies(requirement: ast.Case.Requirement) bool {
         // maximum nor a fractional one can be constructed.
         .requires_unbounded_integers => false,
         .requires_fractional_amounts => false,
-        .requires_raise_on_double_close => false,
     };
 }
 

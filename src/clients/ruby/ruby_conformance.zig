@@ -26,7 +26,6 @@ fn satisfies(requirement: ast.Case.Requirement) bool {
         // Ruby's Integer is arbitrary precision, and Float is accepted where Integer is expected.
         .requires_unbounded_integers => true,
         .requires_fractional_amounts => true,
-        .requires_raise_on_double_close => true,
     };
 }
 

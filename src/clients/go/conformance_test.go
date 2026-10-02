@@ -6744,8 +6744,13 @@ func TestConformance(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrClientClosed))
 	})
 
-	// Omitted: "fails a second close"
-	// Reason: requires raise on double close
+	t.Run("close_client_ignores_a_second_close", func(t *testing.T) {
+		client := newClient(t, port)
+		defer client.Close()
+
+		client.Close()
+		client.Close()
+	})
 }
 
 func startConformanceServer(t *testing.T) string {

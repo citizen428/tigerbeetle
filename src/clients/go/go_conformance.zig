@@ -27,7 +27,6 @@ fn satisfies(requirement: ast.Case.Requirement) bool {
         .requires_unbounded_integers => false,
         // `Amount` is a `Uint128`, so a fractional value cannot be constructed.
         .requires_fractional_amounts => false,
-        .requires_raise_on_double_close => false,
     };
 }
 
