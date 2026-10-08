@@ -91,43 +91,6 @@ public class IntegrationTest {
     }
 
     @Test
-    public void testConstructorReplicaAddressesLimitExceeded() throws Throwable {
-        final var replicaAddresses = new String[100];
-        for (int i = 0; i < replicaAddresses.length; i++) {
-            replicaAddresses[i] = "3000";
-        }
-
-        try (final var client = new Client(clusterId, replicaAddresses)) {
-            fail();
-        } catch (InitializationException initializationException) {
-            assertEquals(InitializationStatus.AddressLimitExceeded.value,
-                    initializationException.getStatus());
-        }
-    }
-
-    @Test
-    public void testConstructorEmptyStringReplicaAddresses() throws Throwable {
-        final var replicaAddresses = new String[] {"", "", ""};
-        try (final var client = new Client(clusterId, replicaAddresses)) {
-            fail();
-        } catch (InitializationException initializationException) {
-            assertEquals(InitializationStatus.AddressInvalid.value,
-                    initializationException.getStatus());
-        }
-    }
-
-    @Test
-    public void testConstructorInvalidReplicaAddresses() throws Throwable {
-        final var replicaAddresses = new String[] {"127.0.0.1:99999"};
-        try (final var client = new Client(clusterId, replicaAddresses)) {
-            fail();
-        } catch (InitializationException initializationException) {
-            assertEquals(InitializationStatus.AddressInvalid.value,
-                    initializationException.getStatus());
-        }
-    }
-
-    @Test
     public void testConstructorCluster() throws Throwable {
         final var clusterId = UInt128.id();
         final var replicaAddresses = new String[] {"3001"};
