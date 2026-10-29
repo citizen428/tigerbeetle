@@ -193,6 +193,11 @@ fn readme_root(ctx: *Context) !void {
             \\* `3000` (interpreted as `127.0.0.1:3000`)
             \\* `127.0.0.1:3000` (interpreted as `127.0.0.1:3000`)
             \\* `127.0.0.1` (interpreted as `127.0.0.1:3001`, `3001` is the default port)
+            \\
+            \\Addresses can also be separated by commas (with no surrounding spaces):
+            \\* `3000,3001,3002` (interpreted as three replicas on `127.0.0.1` on different ports)
+            \\* `10.0.0.1:3000,10.0.0.2` (interpreted as `10.0.0.1:3000` and `10.0.0.2:3001`,
+            \\  `3001` is the default port)
         );
     }
 
