@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import ctypes
 import platform
+import struct
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Dict
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
@@ -77,8 +80,35 @@ class c_uint128(ctypes.Structure):  # noqa: N801
         validate_uint(bits=128, name=name, number=obj)
         return cls(_high=obj >> 64, _low=obj & 0xFFFFFFFFFFFFFFFF)
 
-    def to_python(self) -> int:
-        return int(self._high << 64 | self._low)
+    _struct = struct.Struct("<QQ")
+
+    @classmethod
+    def pack_many(cls, objs: list[int]) -> ctypes.Array[Any]:
+        buffer = ctypes.create_string_buffer(cls._struct.size * len(objs))
+        offset = 0
+        for obj in objs:
+            try:
+                cls._struct.pack_into(buffer, offset, obj & 0xFFFFFFFFFFFFFFFF, obj >> 64)
+
+            # Keeping the exceptions the same as the previous ctypes version
+            except (struct.error, TypeError) as error:
+                validate_uint(bits=128, name="u128", number=obj)
+                raise TypeError(str(error)) from error
+            offset += cls._struct.size
+        return buffer
+
+
+class EnumCache(Dict[int, Any]):
+    """
+    Maps raw integers to enum or flag members, constructing each distinct member only once.
+    """
+    def __init__(self, enum_type: Callable[[int], Any]) -> None:
+        super().__init__()
+        self._enum_type = enum_type
+
+    def __missing__(self, key: int) -> Any:
+        value = self[key] = self._enum_type(key)
+        return value
 
 def tb_assert(value: Any) -> None:
     """
